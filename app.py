@@ -232,6 +232,25 @@ def handle_connect():
 
     return True
 
+@socketio.on('disconnect')
+def handle_disconnect():
+    """处理websocket断开连接"""
+    token = session.get('token')
+    if not token:
+        return False
+    
+    # 移除连接
+    del ws_connections[token]
+
+    # 发送用户离线通知
+    emit('user_offline', {
+        'message': '用户已断开连接',
+        'forced': False,
+        'username': session['username'],
+    }, broadcast=True)
+
+    return True
+
 def close_ws_connection(username, token):
     """关闭指定token的websocket连接"""
     if token in ws_connections:
