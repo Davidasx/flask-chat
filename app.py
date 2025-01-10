@@ -51,7 +51,7 @@ def kick_session(username, token):
     # 移除会话
     database.remove_session(username, token)
     # 断开连接
-    close_ws_connection(token)
+    close_ws_connection(username, token)
 
 # 下线用户
 def kick_user(username):
@@ -213,6 +213,7 @@ def handle_connect():
     
     # 存储连接
     ws_connections[token] = request.sid
+
     # 获取历史消息
     messages = database.get_messages()
     for message in messages:
@@ -222,12 +223,31 @@ def handle_connect():
             'timestamp': message['timestamp'],
             'id': message['id']
         })
+
+    # 发送用户上线通知
+    emit('user_online', {
+        'message': '用户已连接',
+        'username': session['username'],
+    }, broadcast=True)
+
     return True
 
-def close_ws_connection(token):
+def close_ws_connection(username, token):
     """关闭指定token的websocket连接"""
     if token in ws_connections:
         sid = ws_connections[token]
+
+        # 发送用户离线通知
+        emit('user_offline', {
+            'message': '用户已断开连接',
+            'forced': True,
+            'username': session['username'],
+        }, namespace='/', broadcast=True)
+        
+        # 等待前端处理通知（0.5秒）
+        eventlet.sleep(0.5)
+        
+        # 执行断开连接
         disconnect(sid, namespace='/')
         socketio.close_room(sid)
         del ws_connections[token]
