@@ -13,7 +13,23 @@ function updateOnlineStatus(status) {
             indicator.classList.add('offline');
         }
     }
+
+    // 更新输入框和发送按钮状态
+    sendButton.disabled = status==='disconnected';
 }
+
+// 处理强制下线事件
+socket.on('user_offline', function (data) {
+    if (data.username === username && data.forced === true) {
+        // 更新状态指示灯
+        updateOnlineStatus('disconnected');
+
+        // 延迟跳转到登录页面
+        setTimeout(() => {
+            window.location.href = '/login';
+        }, 1000);
+    }
+});
 
 // Socket连接事件
 socket.on('connect', () => {
@@ -92,7 +108,7 @@ socket.on('message', function (data) {
 // 监听事件
 sendButton.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', function (event) {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !sendButton.disabled) {
         sendMessage();
     }
 });
