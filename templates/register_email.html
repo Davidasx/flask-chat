@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>{{ site_name }} - 注册</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <h2>注册</h2>
+        <h3>初始密码将发送到您的邮箱</h3>
+        <div id="error-message" class="error-message" style="display: none;"></div>
+        <form id="register-form" onsubmit="return handleRegister(event)">
+            <div class="form-group">
+                <label for="username">用户名:</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="email">邮箱:</label>
+                <input type="text" id="email" name="email" required>
+            </div>
+            <button type="submit">注册</button>
+        </form>
+        <p>已有账户？<a href="/login">登录</a></p>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/register_email.js') }}"></script>
+</body>
+
+</html>

@@ -1,0 +1,15 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bar.css') }}">
+<div class="top-bar">
+    <div class="site-info">
+        <h1>{{ site_name }}</h1>
+    </div>
+    <div class="user-info">
+        <div class="dropdown">
+            <button class="dropbtn">{{ user_name }} ▼</button>
+            <div class="dropdown-content">
+                <a href="/change-password">修改密码</a>
+                <a href="/logout">退出登录</a>
+            </div>
+        </div>
+    </div>
+</div>

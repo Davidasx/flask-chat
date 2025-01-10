@@ -1,0 +1,106 @@
+.top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background-color: #3498db;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.site-info h1 {
+    margin: 0;
+    font-size: 1.5em;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.logout-btn {
+    color: white;
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid white;
+    border-radius: 4px;
+}
+
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropbtn {
+    background-color: transparent;
+    color: white;
+    padding: 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.dropdown-content {
+    position: absolute;
+    right: 0;
+    background-color: #f9f9f9;
+    min-width: 160px;
+    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+
+    /* 初始状态 */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+
+    /* 过渡动画 */
+    transition: all 0.3s ease-in-out;
+}
+
+.dropdown-content a {
+    color: black;
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+}
+
+.dropdown-content a:hover {
+    background-color: #f1f1f1;
+}
+
+.dropdown:hover .dropdown-content {
+    /* 显示状态 */
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.dropdown:hover .dropbtn {
+    background-color: #3a505f;
+}
+
+/* 为子项添加过渡延迟，实现连锁动画效果 */
+.dropdown-content a {
+    transition: all 0.2s ease-in-out;
+    transform: translateX(-10px);
+    opacity: 0;
+}
+
+.dropdown:hover .dropdown-content a {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+/* 为每个子项设置不同的延迟 */
+.dropdown:hover .dropdown-content a:nth-child(1) {
+    transition-delay: 0.1s;
+}
+
+.dropdown:hover .dropdown-content a:nth-child(2) {
+    transition-delay: 0.2s;
+}
