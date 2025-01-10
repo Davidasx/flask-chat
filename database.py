@@ -1,6 +1,7 @@
 import sqlite3
 from config import config
 import datetime
+import jwt
 
 db_path = config.get('database', 'chat.db')
 
@@ -36,7 +37,78 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # 创建会话表
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                token TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
     close_db_connection(conn)
+
+# 新增会话
+def add_session(username, token):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                'INSERT INTO sessions (username, token) VALUES (?, ?)',
+                (username, token)
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        close_db_connection(conn)
+
+# 移除会话
+def remove_session(username, token):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                'DELETE FROM sessions WHERE username = ? AND token = ?',
+                (username, token)
+            )
+        return True
+    except Exception as e:
+        print(f"Error removing session: {e}")
+        return False
+    finally:
+        close_db_connection(conn)
+
+def get_sessions(username):
+    conn = get_db_connection()
+    sessions = conn.execute(
+        'SELECT * FROM sessions WHERE username = ?',
+        (username,)
+    ).fetchall()
+    close_db_connection(conn)
+    return sessions
+
+# 测试会话是否有效
+def verify_session(username, token):
+    conn = get_db_connection()
+    session = conn.execute(
+        'SELECT * FROM sessions WHERE username = ? AND token = ?',
+        (username, token)
+    ).fetchone()
+    close_db_connection(conn)
+    if session is None:
+        return False
+    
+    try:
+        # 解码JWT token
+        payload = jwt.decode(token, config.get('secret_key'), algorithms=["HS256"])
+        username = payload.get('username')
+    except:
+        remove_session(username, token)
+        return False
+    
+    return True
 
 def add_user(username, password):
     conn = get_db_connection()

@@ -20,6 +20,7 @@
         </div>
     </div>
     <!-- 确保在主代码之前加载 Socket.IO -->
+    <!-- 确保在加载chat.js之前定义authToken -->
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
     <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 </body>
