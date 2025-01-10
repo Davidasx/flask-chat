@@ -5,7 +5,10 @@
     </div>
     <div class="user-info">
         <div class="dropdown">
-            <button class="dropbtn">{{ user_name }} ▼</button>
+            <button class="dropbtn">
+                <span class="online-indicator"></span>
+                {{ user_name }} ▼
+            </button>
             <div class="dropdown-content">
                 <a href="/change-password">修改密码</a>
                 <a href="/logout">退出登录</a>
