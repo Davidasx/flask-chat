@@ -38,9 +38,9 @@ socket.on('message', function (data) {
     }).replace(/\//g, '-');
     const messageElement = document.createElement('div');
     messageElement.className = 'message';
-    messageElement.innerHTML = (lastMessageUsername === data.username ?`
+    messageElement.innerHTML = (lastMessageUsername === data.username ? `` : `
         <span class="username">${data.username}</span>
-    ` : ``) + 
+    `) + 
     `   <span class="timestamp">${transformed_timestamp}</span>
         <p class="content">${data.message}</p>
     `;
