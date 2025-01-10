@@ -1,7 +1,7 @@
 // 连接到Socket.IO服务器
 const socket = io();
 
-let lastMessageId = 0, lastMessageUsername = null;
+let lastMessageId = 0, lastMessageUsername = null, mergeBlockTimestamp = null;
 
 // 消息容器
 const messagesContainer = document.getElementById('messages');
@@ -36,18 +36,35 @@ socket.on('message', function (data) {
         second: '2-digit',
         hour12: false
     }).replace(/\//g, '-');
-    const messageElement = document.createElement('div');
-    messageElement.className = 'message';
-    messageElement.innerHTML = (lastMessageUsername === data.username ? `` : `
-        <span class="username">${data.username}</span>
-    `) + 
-    `   <span class="timestamp">${transformed_timestamp}</span>
-        <p class="content">${data.message}</p>
-    `;
+
+    // 检查是否需要合并消息
+    const currentTime = date.getTime();
+    const shouldMerge = lastMessageUsername === data.username &&
+        mergeBlockTimestamp &&
+        (currentTime - mergeBlockTimestamp) <= 10 * 60 * 1000;
+
+    if (shouldMerge) {
+        // 合并到最后一条消息
+        const lastMessage = messagesContainer.lastElementChild;
+        lastMessage.querySelector('.content').insertAdjacentHTML('beforeend',
+            `<br>${data.message}`
+        );
+    } else {
+        // 创建新的消息块
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message';
+        messageElement.innerHTML = `
+            <span class="username">${data.username}</span>
+            <span class="timestamp">${transformed_timestamp}</span>
+            <p class="content">${data.message}</p>
+        `;
+        messagesContainer.appendChild(messageElement);
+        // 更新合并块时间戳
+        mergeBlockTimestamp = currentTime;
+    }
+
     lastMessageId = data.id;
     lastMessageUsername = data.username;
-    // 将新消息添加到底部
-    messagesContainer.appendChild(messageElement);
     scrollToBottom();
 });
 
