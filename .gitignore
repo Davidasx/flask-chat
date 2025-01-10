@@ -1,3 +1,4 @@
 chat.db
 __pycache__/
 config.json
+.codegpt

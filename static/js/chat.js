@@ -24,10 +24,6 @@ function scrollToBottom() {
 
 // 接收消息
 socket.on('message', function (data) {
-    lastMessageId = data.id;
-    const messageElement = document.createElement('div');
-    messageElement.className = 'message';
-
     // 转换UTC时间为本地时间
     const utc_timestamp = new Date(data.timestamp);
     const date = new Date(utc_timestamp.getTime() - utc_timestamp.getTimezoneOffset() * 60000);
@@ -40,12 +36,15 @@ socket.on('message', function (data) {
         second: '2-digit',
         hour12: false
     }).replace(/\//g, '-');
-
-    messageElement.innerHTML = `
+    const messageElement = document.createElement('div');
+    messageElement.className = 'message';
+    messageElement.innerHTML = (lastMessage.username === data.username ?`
         <span class="username">${data.username}</span>
-        <span class="timestamp">${transformed_timestamp}</span>
+    ` : ``) + 
+    `   <span class="timestamp">${transformed_timestamp}</span>
         <p class="content">${data.message}</p>
     `;
+    lastMessage = {...data};
     // 将新消息添加到底部
     messagesContainer.appendChild(messageElement);
     scrollToBottom();
@@ -59,9 +58,11 @@ messageInput.addEventListener('keypress', function (event) {
     }
 });
 
+let lastMessage = null;
+
 // 定期检查新消息
 setInterval(() => {
-    socket.emit('check_messages', { lastId: lastMessageId });
+    socket.emit('check_messages', { lastId: lastMessage.id });
 }, 5000);
 
 // 初始加载完成后滚动到底部
