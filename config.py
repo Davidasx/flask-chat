@@ -19,17 +19,22 @@ class Config:
 
             self.config_data = {
                 {
-                    "database": {
-                        "type": "sqlite",
-                        "path": "chat.db"
-                    },
-                    "server": {
-                        "host": "0.0.0.0",
-                        "port": 5000,
-                        "debug": True
-                    },
-                    "secret_key": secret_key,
-                    "site_name": "Chat App"
+                    {
+                        "database": "chat.db",
+                        "server": {
+                            "host": "0.0.0.0",
+                            "port": 5000,
+                            "debug": True
+                        },
+                        "email_verification": False,
+                        "verification_sender": {
+                            "resend_api_key": "",
+                            "sender_email": "user@example.com",
+                            "recipient_domain": "*"
+                        },
+                        "secret_key": secret_key,
+                        "site_name": "Chat App"
+                    }
                 }
             }
             # 创建默认配置文件
