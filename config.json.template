@@ -1,0 +1,16 @@
+{
+    "database": "chat.db",
+    "server": {
+        "host": "0.0.0.0",
+        "port": 5000,
+        "debug": true
+    },
+    "email_verification": false,
+    "verification_sender": {
+        "resend_api_key": "",
+        "sender_email": "user@example.com",
+        "recipient_domain": "*"
+    },
+    "secret_key": "secret-key-here",
+    "site_name": "Chat App"
+}
