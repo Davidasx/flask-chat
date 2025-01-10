@@ -21,7 +21,7 @@
 .user-info {
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 10px;
 }
 
 .logout-btn {
@@ -103,4 +103,20 @@
 
 .dropdown:hover .dropdown-content a:nth-child(2) {
     transition-delay: 0.2s;
+}
+
+.online-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #2ecc71;
+    display: inline-block;
+    margin-right: 8px;
+    /* 添加发光效果 */
+    box-shadow: 0 0 5px #2ecc71;
+}
+
+.online-indicator.offline {
+    background-color: #e74c3c;
+    box-shadow: 0 0 5px #e74c3c;
 }

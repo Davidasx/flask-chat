@@ -3,6 +3,27 @@ const socket = io();
 
 let lastMessageId = 0, lastMessageUsername = null, mergeBlockTimestamp = null;
 
+// 更新在线状态指示灯
+function updateOnlineStatus(status) {
+    const indicator = document.querySelector('.online-indicator');
+    if (indicator) {
+        if (status === 'connected') {
+            indicator.classList.remove('offline');
+        } else {
+            indicator.classList.add('offline');
+        }
+    }
+}
+
+// Socket连接事件
+socket.on('connect', () => {
+    updateOnlineStatus('connected');
+});
+
+socket.on('disconnect', () => {
+    updateOnlineStatus('disconnected');
+});
+
 // 消息容器
 const messagesContainer = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
