@@ -28,6 +28,11 @@
     border-radius: 12px;
     max-width: 80%;
     animation: fadeIn 0.3s ease;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.message:hover {
+    background-color: #e0e0e0;
 }
 
 /* 用户名和时间戳 */
