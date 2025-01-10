@@ -1,6 +1,8 @@
 // 连接到Socket.IO服务器
 const socket = io();
 
+let lastMessageId = 0;
+
 // 消息容器
 const messagesContainer = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
@@ -10,7 +12,7 @@ const sendButton = document.getElementById('send-button');
 function sendMessage() {
     const message = messageInput.value.trim();
     if (message) {
-        socket.emit('message', { message: message });
+        socket.emit('send_message', { message: message });
         messageInput.value = '';
     }
 }
@@ -25,9 +27,23 @@ socket.on('message', function (data) {
     lastMessageId = data.id;
     const messageElement = document.createElement('div');
     messageElement.className = 'message';
+
+    // 转换UTC时间为本地时间
+    const utc_timestamp = new Date(data.timestamp);
+    const date = new Date(utc_timestamp.getTime() - utc_timestamp.getTimezoneOffset() * 60000);
+    const transformed_timestamp = date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).replace(/\//g, '-');
+
     messageElement.innerHTML = `
         <span class="username">${data.username}</span>
-        <span class="timestamp">${data.timestamp}</span>
+        <span class="timestamp">${transformed_timestamp}</span>
         <p class="content">${data.message}</p>
     `;
     // 将新消息添加到底部
@@ -42,9 +58,6 @@ messageInput.addEventListener('keypress', function (event) {
         sendMessage();
     }
 });
-
-// 修改定时检查逻辑
-let lastMessageId = 0;
 
 // 定期检查新消息
 setInterval(() => {

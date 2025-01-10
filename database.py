@@ -1,5 +1,6 @@
 import sqlite3
 from config import config
+import datetime
 
 db_path = config.get('database', 'chat.db')
 
@@ -21,7 +22,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
                 message TEXT NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                timestamp DATETIME
             )
         ''')
         
@@ -134,7 +135,18 @@ def verified_email(username):
     close_db_connection(conn)
     return user
 
-def get_messages(last_id=0, limit=50):
+def get_last_message():
+    try:
+        conn = get_db_connection()
+        message = conn.execute(
+            'SELECT * FROM messages ORDER BY id DESC LIMIT 1'
+        ).fetchone()
+        close_db_connection(conn)
+        return message
+    except Exception as e:
+        return None
+
+def get_messages(last_id=0, limit=50, timezone_offset=0):
     try:
         conn = get_db_connection()
         messages = conn.execute(
@@ -151,11 +163,11 @@ def add_message(username, message):
         conn = get_db_connection()
         with conn:
             cursor = conn.execute(
-                'INSERT INTO messages (username, message) VALUES (?, ?)', 
-                (username, message)
+                'INSERT INTO messages (username, message, timestamp) VALUES (?, ?, ?)', 
+                (username, message, datetime.datetime.utcnow())
             )
         close_db_connection(conn)
-        return True
+        return datetime.datetime.utcnow()
     except Exception as e:
         print(f"Error adding message: {e}")
-        return False
+        return -1
