@@ -5,7 +5,7 @@ from flask import jsonify, Flask, render_template, request, redirect, url_for, s
 import jwt
 import datetime
 import database
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, disconnect
 from functools import wraps
 from config import config
 
@@ -17,6 +17,10 @@ app.config['SECRET_KEY'] = config.get('secret_key')
 app.config['SITE_NAME'] = config.get('site_name')
 # 初始化 SocketIO
 socketio = SocketIO(app, async_mode='eventlet')
+
+# 存储token和websocket连接的映射
+ws_connections = {}
+
 database.init_db()
 
 def login_required(f):
@@ -26,27 +30,10 @@ def login_required(f):
         if not token:
             return redirect(url_for('login'))
             
-        try:
-            # 解码JWT token
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            username = payload.get('username')
-            
-            # 验证用户是否存在
-            user = database.get_user(username)
-            if not user:
-                # 用户不存在,清除session
-                session.clear()
-                return redirect(url_for('login'))
-            
+        if database.verify_session(session['username'], token):
             return f(*args, **kwargs)
-            
-        except jwt.ExpiredSignatureError:
-            # token过期
+        else:
             session.clear()
-            return redirect(url_for('login'))
-        except:
-            # 其他错误
-            session.clear() 
             return redirect(url_for('login'))
             
     return decorated_function
@@ -58,6 +45,22 @@ def no_login_only(f):
             return redirect(url_for('chat'))
         return f(*args, **kwargs)
     return decorated_function
+
+# 下线session
+def kick_session(username, token):
+    # 移除会话
+    database.remove_session(username, token)
+    # 断开连接
+    close_ws_connection(token)
+
+# 下线用户
+def kick_user(username):
+    # 移除所有会话
+    sessions = database.get_sessions(username)
+    for alive_session in sessions:
+        kick_session(username, alive_session['token'])
+    # 清除session
+    session.clear()
 
 @app.route('/')
 def home():
@@ -149,6 +152,8 @@ def login():
             session['token'] = token
             session['username'] = username
 
+            database.add_session(username, token)
+
             return jsonify({
                 'token': token,
                 'message': '登录成功',
@@ -182,6 +187,9 @@ def change_password():
         if user:
             # 更新密码
             database.update_password(session['username'], new_password)
+            # 下线用户
+            kick_user(session['username'])
+            # 清除session
             session.clear()
             return jsonify({
                 'message': '修改成功',
@@ -195,6 +203,16 @@ def change_password():
 # 处理客户端连接
 @socketio.on('connect')
 def handle_connect():
+    """处理websocket连接"""
+    token = session.get('token')
+    if not token:
+        return False
+    
+    if not database.verify_session(session['username'], token):
+        return False
+    
+    # 存储连接
+    ws_connections[token] = request.sid
     # 获取历史消息
     messages = database.get_messages()
     for message in messages:
@@ -204,11 +222,27 @@ def handle_connect():
             'timestamp': message['timestamp'],
             'id': message['id']
         })
+    return True
+
+def close_ws_connection(token):
+    """关闭指定token的websocket连接"""
+    if token in ws_connections:
+        sid = ws_connections[token]
+        disconnect(sid, namespace='/')
+        socketio.close_room(sid)
+        del ws_connections[token]
 
 # 处理新消息
 @socketio.on('send_message')
 def handle_message(data):
     if not session.get('username'):
+        return
+    
+    if not session.get('token'):
+        return
+    
+    # 阻止未授权的用户发送消息
+    if not database.verify_session(session['username'], session['token']):
         return
     
     username = session['username']
@@ -241,7 +275,6 @@ def handle_check_messages(data):
             'message': message['message'],
             'timestamp': message['timestamp']
         })
-
 
 # 使用服务器配置
 if __name__ == '__main__':

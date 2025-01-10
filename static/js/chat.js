@@ -1,4 +1,4 @@
-// 连接到Socket.IO服务器
+// 建立带token的Socket连接
 const socket = io();
 
 let lastMessageId = 0, lastMessageUsername = null, mergeBlockTimestamp = null;
