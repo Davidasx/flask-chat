@@ -22,14 +22,16 @@ function scrollToBottom() {
 
 // 接收消息
 socket.on('message', function (data) {
-    lastMessageId = data.id;
     const messageElement = document.createElement('div');
     messageElement.className = 'message';
-    messageElement.innerHTML = `
+    messageElement.innerHTML = (lastMessage.username === data.username ?`
         <span class="username">${data.username}</span>
+    ` : ``) + 
+    `
         <span class="timestamp">${data.timestamp}</span>
         <p class="content">${data.message}</p>
     `;
+    lastMessage = {...data};
     // 将新消息添加到底部
     messagesContainer.appendChild(messageElement);
     scrollToBottom();
@@ -44,11 +46,11 @@ messageInput.addEventListener('keypress', function (event) {
 });
 
 // 修改定时检查逻辑
-let lastMessageId = 0;
+let lastMessage = null;
 
 // 定期检查新消息
 setInterval(() => {
-    socket.emit('check_messages', { lastId: lastMessageId });
+    socket.emit('check_messages', { lastId: lastMessage.id });
 }, 5000);
 
 // 初始加载完成后滚动到底部
