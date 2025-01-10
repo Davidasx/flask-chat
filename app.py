@@ -201,11 +201,12 @@ def handle_connect():
         emit('message', {
             'username': message['username'],
             'message': message['message'],
-            'timestamp': message['timestamp']
+            'timestamp': message['timestamp'],
+            'id': message['id']
         })
 
 # 处理新消息
-@socketio.on('message')
+@socketio.on('send_message')
 def handle_message(data):
     if not session.get('username'):
         return
@@ -216,12 +217,16 @@ def handle_message(data):
     if message:
         # 保存消息到数据库
         database.add_message(username, message)
+
+        # 获取最新消息以确保时间格式一致
+        last_message = database.get_last_message()
         
         # 广播消息给所有连接的客户端
         emit('message', {
             'username': username,
             'message': message,
-            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': last_message['timestamp'],
+            'id': last_message['id']
         }, broadcast=True)
 
 @socketio.on('check_messages')
