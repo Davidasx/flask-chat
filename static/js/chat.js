@@ -1,7 +1,7 @@
 // 连接到Socket.IO服务器
 const socket = io();
 
-let lastMessageId = 0;
+let lastMessageId = 0, lastMessageUsername = null;
 
 // 消息容器
 const messagesContainer = document.getElementById('messages');
@@ -38,13 +38,14 @@ socket.on('message', function (data) {
     }).replace(/\//g, '-');
     const messageElement = document.createElement('div');
     messageElement.className = 'message';
-    messageElement.innerHTML = (lastMessage.username === data.username ?`
+    messageElement.innerHTML = (lastMessageUsername === data.username ?`
         <span class="username">${data.username}</span>
     ` : ``) + 
     `   <span class="timestamp">${transformed_timestamp}</span>
         <p class="content">${data.message}</p>
     `;
-    lastMessage = {...data};
+    lastMessageId = data.id;
+    lastMessageUsername = data.username;
     // 将新消息添加到底部
     messagesContainer.appendChild(messageElement);
     scrollToBottom();
@@ -58,11 +59,9 @@ messageInput.addEventListener('keypress', function (event) {
     }
 });
 
-let lastMessage = null;
-
 // 定期检查新消息
 setInterval(() => {
-    socket.emit('check_messages', { lastId: lastMessage.id });
+    socket.emit('check_messages', { lastId: lastMessageId });
 }, 5000);
 
 // 初始加载完成后滚动到底部
