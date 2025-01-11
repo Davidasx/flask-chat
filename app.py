@@ -135,12 +135,22 @@ def register():
 @no_login_only
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        remember = data.get('remember', False)
+
+        print(username, password, remember)
         
         user = database.verify_user(username, password)
 
         if user:
+            if remember:
+                session.permanent = True
+                app.permanent_session_lifetime = datetime.timedelta(days=30)
+            else:
+                session.permanent = False
+            
             # 生成 token
             token = jwt.encode({
                 'user_id': user['id'],
