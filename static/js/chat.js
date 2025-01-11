@@ -61,9 +61,12 @@ function scrollToBottom() {
 
 // 接收消息
 socket.on('message', function (data) {
+    if (data.id <= lastMessageId) {
+        return;
+    }
     // 转换UTC时间为本地时间
     const utc_timestamp = new Date(data.timestamp);
-    const date = new Date(utc_timestamp.getTime() - utc_timestamp.getTimezoneOffset() * 60000);
+    const date = new Date(utc_timestamp.getTime() - utc_timestamp.getTimezoneOffset() * 60 * 1000);
     const transformed_timestamp = date.toLocaleString('zh-CN', {
         year: 'numeric',
         month: '2-digit',
@@ -77,8 +80,9 @@ socket.on('message', function (data) {
     // 检查是否需要合并消息
     const currentTime = date.getTime();
     const shouldMerge = lastMessageUsername === data.username &&
-        mergeBlockTimestamp &&
-        (currentTime - mergeBlockTimestamp) <= 10 * 60 * 1000;
+        mergeBlockTimestamp !== null &&
+        new Date(data.timestamp).getTime() - new Date(mergeBlockTimestamp).getTime() <= 10 * 60 * 1000 &&
+        messagesContainer.lastElementChild;
 
     if (shouldMerge) {
         // 合并到最后一条消息
@@ -97,7 +101,7 @@ socket.on('message', function (data) {
         `;
         messagesContainer.appendChild(messageElement);
         // 更新合并块时间戳
-        mergeBlockTimestamp = currentTime;
+        mergeBlockTimestamp = data.timestamp;
     }
 
     lastMessageId = data.id;
