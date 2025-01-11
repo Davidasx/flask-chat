@@ -60,3 +60,20 @@ a {
 a:hover {
     text-decoration: underline;
 }
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
+.checkbox-group label {
+    font-size: 14px;
+    color: #666;
+}
