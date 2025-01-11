@@ -3,3 +3,4 @@ __pycache__/
 config.json
 .codegpt
 config_server.json
+.vscode/

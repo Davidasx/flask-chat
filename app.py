@@ -8,6 +8,7 @@ import database
 from flask_socketio import SocketIO, emit, disconnect
 from functools import wraps
 from config import config
+from threading import Timer
 
 import verification
 import random
@@ -217,7 +218,9 @@ def handle_connect():
         return False
     
     if not database.verify_session(session['username'], token):
-        return False
+        ws_connections[token] = request.sid
+        Timer(2.0, close_ws_connection, args=[session['username'], token]).start()
+        return True
     
     # 存储连接
     ws_connections[token] = request.sid
@@ -248,7 +251,10 @@ def handle_disconnect():
         return False
     
     # 移除连接
-    del ws_connections[token]
+    try:
+        del ws_connections[token]
+    except:
+        pass
 
     # 发送用户离线通知
     emit('user_offline', {
@@ -261,23 +267,31 @@ def handle_disconnect():
 
 def close_ws_connection(username, token):
     """关闭指定token的websocket连接"""
-    if token in ws_connections:
-        sid = ws_connections[token]
+    with app.app_context():
+        if token in ws_connections:
+            sid = ws_connections[token]
 
-        # 发送用户离线通知
-        emit('user_offline', {
-            'message': '用户已断开连接',
-            'forced': True,
-            'username': session['username'],
-        }, namespace='/', broadcast=True)
-        
-        # 等待前端处理通知（0.5秒）
-        eventlet.sleep(0.5)
-        
-        # 执行断开连接
-        disconnect(sid, namespace='/')
-        socketio.close_room(sid)
-        del ws_connections[token]
+            # 发送用户离线通知
+            emit('user_offline', {
+                'message': '用户会话已过期',
+                'username': username,
+            }, namespace='/', broadcast=True)
+
+            # 发送强制下线通知
+            emit('force_disconnect', {
+                'message': '用户会话已过期'
+            }, namespace='/', room=sid)
+            
+            # 等待前端处理通知（0.5秒）
+            eventlet.sleep(0.5)
+            
+            # 执行断开连接
+            disconnect(sid, namespace='/')
+            socketio.close_room(sid)
+            try:
+                del ws_connections[token]
+            except:
+                pass
 
 # 处理新消息
 @socketio.on('send_message')
