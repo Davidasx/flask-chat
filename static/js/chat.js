@@ -19,16 +19,16 @@ function updateOnlineStatus(status) {
 }
 
 // 处理强制下线事件
-socket.on('user_offline', function (data) {
-    if (data.username === username && data.forced === true) {
-        // 更新状态指示灯
-        updateOnlineStatus('disconnected');
+socket.on('force_disconnect', function (data) {
+    socket.disconnect();
 
-        // 延迟跳转到登录页面
-        setTimeout(() => {
-            window.location.href = '/login';
-        }, 1000);
-    }
+    // 更新状态指示灯
+    updateOnlineStatus('disconnected');
+
+    // 延迟跳转到登录页面
+    setTimeout(() => {
+        window.location.href = '/login';
+    }, 1000);
 });
 
 // Socket连接事件
