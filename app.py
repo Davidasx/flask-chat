@@ -139,8 +139,6 @@ def login():
         username = data.get('username')
         password = data.get('password')
         remember = data.get('remember', False)
-
-        print(username, password, remember)
         
         user = database.verify_user(username, password)
 
