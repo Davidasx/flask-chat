@@ -3,14 +3,19 @@ async function handleLogin(event) {
 
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
+    const remember = document.getElementById('remember').checked;
 
     try {
         const response = await fetch('/login', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json',
             },
-            body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+            body: JSON.stringify({
+                username: username,
+                password: password,
+                remember: remember
+            })
         });
 
         const data = await response.json();

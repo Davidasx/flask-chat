@@ -1,7 +1,6 @@
 async function handleChangePassword(event) {
     event.preventDefault();
 
-    const username = document.getElementById('username').value;
     const oldPassword = document.getElementById('old-password').value;
     const newPassword = document.getElementById('new-password').value;
     const confirmPassword = document.getElementById('confirm-password').value;
@@ -18,7 +17,7 @@ async function handleChangePassword(event) {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Authorization': 'Bearer ' + localStorage.getItem('token')
             },
-            body: `username=${encodeURIComponent(username)}&old_password=${encodeURIComponent(oldPassword)}&new_password=${encodeURIComponent(newPassword)}`
+            body: `old_password=${encodeURIComponent(oldPassword)}&new_password=${encodeURIComponent(newPassword)}`
         });
 
         const data = await response.json();

@@ -1,7 +1,44 @@
-// 连接到Socket.IO服务器
+// 建立带token的Socket连接
 const socket = io();
 
 let lastMessageId = 0, lastMessageUsername = null, mergeBlockTimestamp = null;
+
+// 更新在线状态指示灯
+function updateOnlineStatus(status) {
+    const indicator = document.querySelector('.online-indicator');
+    if (indicator) {
+        if (status === 'connected') {
+            indicator.classList.remove('offline');
+        } else {
+            indicator.classList.add('offline');
+        }
+    }
+
+    // 更新输入框和发送按钮状态
+    sendButton.disabled = status==='disconnected';
+}
+
+// 处理强制下线事件
+socket.on('force_disconnect', function (data) {
+    socket.disconnect();
+
+    // 更新状态指示灯
+    updateOnlineStatus('disconnected');
+
+    // 延迟跳转到登录页面
+    setTimeout(() => {
+        window.location.href = '/login';
+    }, 1000);
+});
+
+// Socket连接事件
+socket.on('connect', () => {
+    updateOnlineStatus('connected');
+});
+
+socket.on('disconnect', () => {
+    updateOnlineStatus('disconnected');
+});
 
 // 消息容器
 const messagesContainer = document.getElementById('messages');
@@ -24,9 +61,12 @@ function scrollToBottom() {
 
 // 接收消息
 socket.on('message', function (data) {
+    if (data.id <= lastMessageId) {
+        return;
+    }
     // 转换UTC时间为本地时间
     const utc_timestamp = new Date(data.timestamp);
-    const date = new Date(utc_timestamp.getTime() - utc_timestamp.getTimezoneOffset() * 60000);
+    const date = new Date(utc_timestamp.getTime() - utc_timestamp.getTimezoneOffset() * 60 * 1000);
     const transformed_timestamp = date.toLocaleString('zh-CN', {
         year: 'numeric',
         month: '2-digit',
@@ -40,8 +80,9 @@ socket.on('message', function (data) {
     // 检查是否需要合并消息
     const currentTime = date.getTime();
     const shouldMerge = lastMessageUsername === data.username &&
-        mergeBlockTimestamp &&
-        (currentTime - mergeBlockTimestamp) <= 10 * 60 * 1000;
+        mergeBlockTimestamp !== null &&
+        new Date(data.timestamp).getTime() - new Date(mergeBlockTimestamp).getTime() <= 10 * 60 * 1000 &&
+        messagesContainer.lastElementChild;
 
     if (shouldMerge) {
         // 合并到最后一条消息
@@ -60,7 +101,7 @@ socket.on('message', function (data) {
         `;
         messagesContainer.appendChild(messageElement);
         // 更新合并块时间戳
-        mergeBlockTimestamp = currentTime;
+        mergeBlockTimestamp = data.timestamp;
     }
 
     lastMessageId = data.id;
@@ -71,7 +112,7 @@ socket.on('message', function (data) {
 // 监听事件
 sendButton.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', function (event) {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !sendButton.disabled) {
         sendMessage();
     }
 });

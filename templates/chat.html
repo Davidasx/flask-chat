@@ -19,6 +19,9 @@
             <button id="send-button">发送</button>
         </div>
     </div>
+    <script>
+        const username = "{{ user_name }}";
+    </script>
     <!-- 确保在主代码之前加载 Socket.IO -->
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
     <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
