@@ -10,7 +10,7 @@ const sendButton = document.getElementById('send-button');
 
 // 发送消息
 function sendMessage() {
-    const message = messageInput.value.trim();
+    const message = sanitizeMessage(messageInput.value.trim());
     if (message) {
         socket.emit('send_message', { message: message });
         messageInput.value = '';
@@ -56,7 +56,7 @@ socket.on('message', function (data) {
         messageElement.innerHTML = `
             <span class="username">${data.username}</span>
             <span class="timestamp">${transformed_timestamp}</span>
-            <p class="content">${data.message}</p>
+            <p class="content">${sanitizeMessage(data.message)}</p>
         `;
         messagesContainer.appendChild(messageElement);
         // 更新合并块时间戳
@@ -85,3 +85,12 @@ setInterval(() => {
 window.onload = function () {
     scrollToBottom();
 };
+
+
+/* --- MISCS FOR MESSAGE DISPLAY --- */
+
+function sanitizeMessage(message) {
+    const tempElement = document.createElement('div');
+    tempElement.textContent = message;
+    return tempElement.innerText;
+}
