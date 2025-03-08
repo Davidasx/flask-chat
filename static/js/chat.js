@@ -15,7 +15,7 @@ function updateOnlineStatus(status) {
     }
 
     // 更新输入框和发送按钮状态
-    sendButton.disabled = status==='disconnected';
+    sendButton.disabled = status === 'disconnected';
 }
 
 // 处理强制下线事件
@@ -84,29 +84,60 @@ socket.on('message', function (data) {
         new Date(data.timestamp).getTime() - new Date(mergeBlockTimestamp).getTime() <= 10 * 60 * 1000 &&
         messagesContainer.lastElementChild;
 
-    if (shouldMerge) {
-        // 合并到最后一条消息
-        const lastMessage = messagesContainer.lastElementChild;
-        lastMessage.querySelector('.content').insertAdjacentHTML('beforeend',
-            `<br>${data.message}`
-        );
-    } else {
-        // 创建新的消息块
-        const messageElement = document.createElement('div');
-        messageElement.className = 'message';
-        messageElement.innerHTML = `
-            <span class="username">${data.username}</span>
-            <span class="timestamp">${transformed_timestamp}</span>
-            <p class="content">${sanitizeMessage(data.message)}</p>
-        `;
-        messagesContainer.appendChild(messageElement);
-        // 更新合并块时间戳
-        mergeBlockTimestamp = data.timestamp;
-    }
+    const messageElement = document.createElement('div');
+    messageElement.className = 'message';
+    messageElement.innerHTML = messageContent(shouldMerge);
+    messagesContainer.appendChild(messageElement);
+
+    addCopyButton(messageElement);
+
+    // 更新合并块时间戳
+    mergeBlockTimestamp = data.timestamp;
 
     lastMessageId = data.id;
     lastMessageUsername = data.username;
     scrollToBottom();
+
+    function messageContent(shouldMerge) {
+        if (shouldMerge) return `
+            <p class="content">${sanitizeMessage(data.message)}</p>
+        `;
+        else return `
+            <span class="username">${data.username}</span>
+            <span class="timestamp">${transformed_timestamp}</span>
+            <p class="content">${sanitizeMessage(data.message)}</p>
+        `;
+    }
+
+    // Function to create and append the button
+    function addCopyButton(messageElement) {
+        // Create the button
+        const copyButton = document.createElement('button');
+        copyButton.innerText = 'Copy';
+
+        // Style the button to position it at the top-right
+        copyButton.style.position = 'absolute';
+        copyButton.style.top = '10px'; // Adjust as needed
+        copyButton.style.right = '10px'; // Adjust as needed
+        copyButton.style.zIndex = '1'; // Ensure it is above other elements
+        // Add event listener to handle copy action
+        copyButton.addEventListener('click', () => {
+            const paragraph = messageElement.querySelector('p');
+            if (paragraph) {
+                // Create a temporary textarea element to hold the text
+                const textarea = document.createElement('textarea');
+                textarea.value = paragraph.innerText;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+        });
+        // Append the button to the messageElement
+        messageElement.appendChild(copyButton);
+    }
+    // Call the function to add the button
+    addCopyButton();
 });
 
 // 监听事件
