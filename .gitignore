@@ -6,3 +6,4 @@ config_server.json
 .vscode/
 static/uploads/
 static/uploads/avatars/
+.venv/
