@@ -1,10 +1,5 @@
 {
     "database": "chat.db",
-    "server": {
-        "host": "0.0.0.0",
-        "port": 5000,
-        "debug": true
-    },
     "email_verification": false,
     "verification_sender": {
         "resend_api_key": "",

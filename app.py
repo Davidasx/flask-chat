@@ -1,6 +1,3 @@
-import eventlet
-eventlet.monkey_patch()
-
 from flask import jsonify, Flask, render_template, request, redirect, url_for, session
 import jwt
 import datetime
@@ -9,6 +6,9 @@ from flask_socketio import SocketIO, emit, disconnect
 from functools import wraps
 from config import config
 from threading import Timer
+from PIL import Image, UnidentifiedImageError
+import os
+import uuid
 
 import verification
 import random
@@ -16,22 +16,84 @@ import random
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.get('secret_key')
 app.config['SITE_NAME'] = config.get('site_name')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024
 # 初始化 SocketIO
-socketio = SocketIO(app, async_mode='eventlet')
+socketio = SocketIO(app, async_mode='threading')
 
 # 存储token和websocket连接的映射
 ws_connections = {}
 
+DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
+AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
+
 database.init_db()
+
+
+def _normalize_avatar_path(avatar_path):
+    return avatar_path if avatar_path else DEFAULT_AVATAR_PATH
+
+
+def _is_local_avatar(avatar_path):
+    return bool(avatar_path) and avatar_path.startswith('/static/uploads/avatars/')
+
+
+def _delete_local_avatar_file(avatar_path):
+    if not _is_local_avatar(avatar_path):
+        return
+
+    local_path = os.path.join(app.root_path, avatar_path.lstrip('/'))
+    if os.path.exists(local_path):
+        os.remove(local_path)
+
+
+def _save_avatar_image(username, file_storage):
+    if not file_storage or not file_storage.filename:
+        return None, '请选择要上传的图片'
+
+    try:
+        file_storage.stream.seek(0)
+        image = Image.open(file_storage.stream)
+        image = image.convert('RGBA')
+    except (UnidentifiedImageError, OSError):
+        return None, '仅支持上传有效图片文件'
+
+    width, height = image.size
+    side = min(width, height)
+    left = (width - side) // 2
+    top = (height - side) // 2
+    image = image.crop((left, top, left + side, top + side)).resize((256, 256), Image.Resampling.LANCZOS)
+
+    os.makedirs(AVATAR_UPLOAD_DIR, exist_ok=True)
+    filename = f"{username}_{uuid.uuid4().hex}.png"
+    absolute_path = os.path.join(AVATAR_UPLOAD_DIR, filename)
+    image.save(absolute_path, format='PNG', optimize=True)
+
+    return f"/static/uploads/avatars/{filename}", None
+
+
+@app.context_processor
+def inject_user_context():
+    username = session.get('username')
+    if not username:
+        return {'current_user_avatar': DEFAULT_AVATAR_PATH, 'default_avatar_path': DEFAULT_AVATAR_PATH}
+
+    return {
+        'current_user_avatar': _normalize_avatar_path(database.get_avatar_url(username)),
+        'default_avatar_path': DEFAULT_AVATAR_PATH
+    }
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         token = session.get('token')
-        if not token:
+        username = session.get('username')
+
+        if not token or not username:
             return redirect(url_for('login'))
             
-        if database.verify_session(session['username'], token):
+        if database.verify_session(username, token):
             return f(*args, **kwargs)
         else:
             session.clear()
@@ -60,8 +122,6 @@ def kick_user(username):
     sessions = database.get_sessions(username)
     for alive_session in sessions:
         kick_session(username, alive_session['token'])
-    # 清除session
-    session.clear()
 
 @app.route('/')
 def home():
@@ -70,7 +130,55 @@ def home():
 @app.route('/chat')
 @login_required
 def chat():
-    return render_template('chat.html', site_name=app.config['SITE_NAME'], user_name=session.get('username'))
+    return render_template(
+        'chat.html',
+        site_name=app.config['SITE_NAME'],
+        user_name=session.get('username'),
+        user_avatar=_normalize_avatar_path(database.get_avatar_url(session.get('username'))),
+        default_avatar_path=DEFAULT_AVATAR_PATH
+    )
+
+
+@app.route('/avatar-settings', methods=['GET', 'POST'])
+@login_required
+def avatar_settings():
+    username = session.get('username')
+
+    if request.method == 'POST':
+        action = request.form.get('action', '').strip()
+        old_avatar = database.get_avatar_url(username)
+
+        if action == 'reset':
+            if database.update_avatar_url(username, None):
+                _delete_local_avatar_file(old_avatar)
+                return jsonify({
+                    'message': '头像已恢复默认',
+                    'redirect': url_for('chat')
+                })
+            return jsonify({'error': '头像更新失败'}), 500
+
+        avatar_file = request.files.get('avatar')
+        avatar_path, error = _save_avatar_image(username, avatar_file)
+        if error:
+            return jsonify({'error': error}), 400
+
+        if database.update_avatar_url(username, avatar_path):
+            _delete_local_avatar_file(old_avatar)
+            return jsonify({
+                'message': '头像设置成功',
+                'redirect': url_for('chat')
+            })
+
+        _delete_local_avatar_file(avatar_path)
+        return jsonify({'error': '头像更新失败'}), 500
+
+    return render_template(
+        'avatar_settings.html',
+        site_name=app.config['SITE_NAME'],
+        user_name=username,
+        avatar_url=_normalize_avatar_path(database.get_avatar_url(username)),
+        default_avatar_path=DEFAULT_AVATAR_PATH
+    )
 
 @app.route('/register', methods=['GET', 'POST'])
 @no_login_only
@@ -136,10 +244,13 @@ def register():
 @no_login_only
 def login():
     if request.method == 'POST':
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username')
         password = data.get('password')
         remember = data.get('remember', False)
+
+        if not username or not password:
+            return jsonify({'error': '用户名和密码不能为空'}), 400
         
         user = database.verify_user(username, password)
 
@@ -178,6 +289,10 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    token = session.get('token')
+    username = session.get('username')
+    if token and username:
+        database.remove_session(username, token)
     session.clear()
     return redirect(url_for('login'))
 
@@ -214,12 +329,14 @@ def change_password():
 def handle_connect():
     """处理websocket连接"""
     token = session.get('token')
-    if not token:
+    username = session.get('username')
+
+    if not token or not username:
         return False
     
-    if not database.verify_session(session['username'], token):
+    if not database.verify_session(username, token):
         ws_connections[token] = request.sid
-        Timer(2.0, close_ws_connection, args=[session['username'], token]).start()
+        Timer(2.0, close_ws_connection, args=[username, token]).start()
         return True
     
     # 存储连接
@@ -232,13 +349,14 @@ def handle_connect():
             'username': message['username'],
             'message': message['message'],
             'timestamp': message['timestamp'],
-            'id': message['id']
+            'id': message['id'],
+            'avatar_url': _normalize_avatar_path(message['avatar_url'])
         })
 
     # 发送用户上线通知
     emit('user_online', {
         'message': '用户已连接',
-        'username': session['username'],
+        'username': username,
     }, broadcast=True)
 
     return True
@@ -247,7 +365,9 @@ def handle_connect():
 def handle_disconnect():
     """处理websocket断开连接"""
     token = session.get('token')
-    if not token:
+    username = session.get('username')
+
+    if not token or not username:
         return False
     
     # 移除连接
@@ -260,7 +380,7 @@ def handle_disconnect():
     emit('user_offline', {
         'message': '用户已断开连接',
         'forced': False,
-        'username': session['username'],
+        'username': username,
     }, broadcast=True)
 
     return True
@@ -272,18 +392,18 @@ def close_ws_connection(username, token):
             sid = ws_connections[token]
 
             # 发送用户离线通知
-            emit('user_offline', {
+            socketio.emit('user_offline', {
                 'message': '用户会话已过期',
                 'username': username,
             }, namespace='/', broadcast=True)
 
             # 发送强制下线通知
-            emit('force_disconnect', {
+            socketio.emit('force_disconnect', {
                 'message': '用户会话已过期'
             }, namespace='/', room=sid)
             
             # 等待前端处理通知（0.5秒）
-            eventlet.sleep(0.5)
+            socketio.sleep(0.5)
             
             # 执行断开连接
             disconnect(sid, namespace='/')
@@ -321,26 +441,37 @@ def handle_message(data):
             'username': username,
             'message': message,
             'timestamp': last_message['timestamp'],
-            'id': last_message['id']
+            'id': last_message['id'],
+            'avatar_url': _normalize_avatar_path(last_message['avatar_url'])
         }, broadcast=True)
 
 @socketio.on('check_messages')
 def handle_check_messages(data):
     # 获取最新消息
-    last_id = data.get('lastId')
+    last_id = (data or {}).get('lastId', 0)
+    try:
+        last_id = int(last_id)
+    except (TypeError, ValueError):
+        last_id = 0
     messages = database.get_messages(last_id=last_id)
     # 发送新消息给客户端
     for message in messages:
         emit('message', {
+            'id': message['id'],
             'username': message['username'],
             'message': message['message'],
-            'timestamp': message['timestamp']
+            'timestamp': message['timestamp'],
+            'avatar_url': _normalize_avatar_path(message['avatar_url'])
         })
 
 # 使用服务器配置
 if __name__ == '__main__':
+    server_config = config.get('server', {})
+    if not isinstance(server_config, dict):
+        server_config = {}
+
     socketio.run(app,
-                debug=config.get('server').get('debug', True),
-                host=config.get('server').get('host', '0.0.0.0'),
-                port=config.get('server').get('port', 5000),
+                debug=server_config.get('debug', True),
+                host=server_config.get('host', '0.0.0.0'),
+                port=server_config.get('port', 5000),
                 use_reloader=False)

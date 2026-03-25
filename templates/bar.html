@@ -1,18 +1,36 @@
-<link rel="stylesheet" href="{{ url_for('static', filename='css/bar.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bar.css') }}" />
 <div class="top-bar">
     <div class="site-info">
-        <h1><a href="/" style="text-decoration: none; color: inherit;">{{ site_name }}</a></h1>
+        <h1>
+            <a href="/" style="text-decoration: none; color: inherit"
+                >{{ site_name }}</a
+            >
+        </h1>
     </div>
     <div class="user-info">
-        <div class="dropdown">
-            <button class="dropbtn">
+        <div class="dropdown" id="user-dropdown">
+            <button
+                class="dropbtn"
+                id="user-dropdown-btn"
+                type="button"
+                aria-expanded="false"
+                aria-haspopup="true"
+            >
                 <span class="online-indicator"></span>
-                {{ user_name }} ▼
+                <img
+                    class="top-user-avatar"
+                    src="{{ current_user_avatar }}"
+                    alt="用户头像"
+                />
+                <span>{{ user_name }}</span>
+                <span class="dropdown-arrow">▼</span>
             </button>
-            <div class="dropdown-content">
+            <div class="dropdown-content" role="menu">
+                <a href="/avatar-settings">头像设置</a>
                 <a href="/change-password">修改密码</a>
                 <a href="/logout">退出登录</a>
             </div>
         </div>
     </div>
 </div>
+<script src="{{ url_for('static', filename='js/bar.js') }}"></script>

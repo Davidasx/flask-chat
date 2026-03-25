@@ -1,6 +1,25 @@
 import json
 import os
-import random
+import secrets
+import copy
+
+
+DEFAULT_CONFIG = {
+    "database": "chat.db",
+    "email_verification": False,
+    "verification_sender": {
+        "resend_api_key": "",
+        "sender_email": "user@example.com",
+        "recipient_domain": "*"
+    },
+    "secret_key": "",
+    "site_name": "Chat App"
+}
+
+WEAK_SECRET_KEYS = {
+    "",
+    "secret-key-here",
+}
 
 class Config:
     def __init__(self):
@@ -9,41 +28,29 @@ class Config:
     
     def load_config(self):
         config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        should_save = False
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.config_data = json.load(f)
         except FileNotFoundError:
-            # 使用默认配置
-            # 随机生成密钥
-            secret_key = ''.join([random.choice('abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)') for i in range(24)])
+            self.config_data = copy.deepcopy(DEFAULT_CONFIG)
+            should_save = True
+        except json.JSONDecodeError:
+            self.config_data = copy.deepcopy(DEFAULT_CONFIG)
+            should_save = True
 
-            self.config_data = {
-                {
-                    {
-                        "database": "chat.db",
-                        "server": {
-                            "host": "0.0.0.0",
-                            "port": 5000,
-                            "debug": True
-                        },
-                        "email_verification": False,
-                        "verification_sender": {
-                            "resend_api_key": "",
-                            "sender_email": "user@example.com",
-                            "recipient_domain": "*"
-                        },
-                        "secret_key": secret_key,
-                        "site_name": "Chat App"
-                    }
-                }
-            }
-            # 创建默认配置文件
+        secret_key = str(self.config_data.get("secret_key", "")).strip()
+        if secret_key in WEAK_SECRET_KEYS:
+            self.config_data["secret_key"] = secrets.token_urlsafe(32)
+            should_save = True
+
+        if should_save:
             self.save_config()
     
     def save_config(self):
         config_path = os.path.join(os.path.dirname(__file__), 'config.json')
         with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(self.config_data, indent=4, ensure_ascii=False)
+            json.dump(self.config_data, f, indent=4, ensure_ascii=False)
     
     def get(self, key, default=None):
         return self.config_data.get(key, default)

@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+    <head>
+        <title>{{ site_name }} - 头像设置</title>
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/style.css') }}"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/login.css') }}"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/avatar_settings.css') }}"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css"
+        />
+    </head>
+
+    <body>
+        {% include 'bar.html' %}
+        <div class="container avatar-container" style="margin-top: 90px">
+            <h2>头像设置</h2>
+            <h3>上传图片后裁剪为方形头像，原始文件建议不超过 3MB</h3>
+            <div
+                id="error-message"
+                class="error-message"
+                style="display: none"
+            ></div>
+
+            <div class="avatar-current">
+                <img
+                    id="current-avatar"
+                    src="{{ avatar_url }}"
+                    alt="当前头像"
+                />
+            </div>
+
+            <form
+                id="avatar-form"
+                onsubmit="return handleAvatarSave(event);"
+                enctype="multipart/form-data"
+            >
+                <div class="form-group">
+                    <label for="avatar-file">上传头像:</label>
+                    <input
+                        type="file"
+                        id="avatar-file"
+                        name="avatar-file"
+                        accept="image/png,image/jpeg,image/webp"
+                    />
+                </div>
+
+                <div
+                    class="cropper-wrap"
+                    id="cropper-wrap"
+                    style="display: none"
+                >
+                    <img id="crop-image" alt="裁剪预览" />
+                </div>
+
+                <button type="submit">上传并保存</button>
+                <button
+                    type="button"
+                    id="reset-avatar-btn"
+                    class="secondary-btn"
+                >
+                    恢复默认头像
+                </button>
+            </form>
+        </div>
+
+        <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+        <script>
+            const defaultAvatarUrl = "{{ default_avatar_path }}";
+        </script>
+        <script src="{{ url_for('static', filename='js/avatar_settings.js') }}"></script>
+    </body>
+</html>

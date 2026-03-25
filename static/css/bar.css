@@ -4,18 +4,23 @@
     left: 0;
     right: 0;
     height: 60px;
-    background-color: #3498db;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     color: white;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 0 20px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid #e5edf5;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    z-index: 2200;
 }
 
 .site-info h1 {
     margin: 0;
-    font-size: 1.5em;
+    font-size: 1.35em;
+    color: #0f172a;
 }
 
 .user-info {
@@ -39,19 +44,45 @@
 
 .dropbtn {
     background-color: transparent;
-    color: white;
-    padding: 10px;
-    border: none;
+    color: #1f2937;
+    padding: 8px 12px;
+    border: 1px solid #dbe5ef;
+    border-radius: 10px;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dropdown-arrow {
+    display: inline-block;
+    transition: transform 0.22s ease;
+}
+
+.dropdown.open .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.top-user-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #d8e3ee;
+    background: #f1f5f9;
 }
 
 .dropdown-content {
     position: absolute;
+    top: calc(100% + 8px);
     right: 0;
-    background-color: #f9f9f9;
+    background-color: #ffffff;
     min-width: 160px;
-    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    border: 1px solid #e6edf5;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
 
     /* 初始状态 */
     opacity: 0;
@@ -60,28 +91,31 @@
 
     /* 过渡动画 */
     transition: all 0.3s ease-in-out;
+    z-index: 2300;
+    pointer-events: none;
 }
 
 .dropdown-content a {
-    color: black;
+    color: #1f2937;
     padding: 12px 16px;
     text-decoration: none;
     display: block;
 }
 
 .dropdown-content a:hover {
-    background-color: #f1f1f1;
+    background-color: #f4f8ff;
 }
 
-.dropdown:hover .dropdown-content {
+.dropdown.open .dropdown-content {
     /* 显示状态 */
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
+    pointer-events: auto;
 }
 
-.dropdown:hover .dropbtn {
-    background-color: #3a505f;
+.dropdown.open .dropbtn {
+    background-color: #f4f8ff;
 }
 
 /* 为子项添加过渡延迟，实现连锁动画效果 */
@@ -91,18 +125,22 @@
     opacity: 0;
 }
 
-.dropdown:hover .dropdown-content a {
+.dropdown.open .dropdown-content a {
     transform: translateX(0);
     opacity: 1;
 }
 
 /* 为每个子项设置不同的延迟 */
-.dropdown:hover .dropdown-content a:nth-child(1) {
+.dropdown.open .dropdown-content a:nth-child(1) {
     transition-delay: 0.1s;
 }
 
-.dropdown:hover .dropdown-content a:nth-child(2) {
+.dropdown.open .dropdown-content a:nth-child(2) {
     transition-delay: 0.2s;
+}
+
+.dropdown.open .dropdown-content a:nth-child(3) {
+    transition-delay: 0.3s;
 }
 
 .online-indicator {
