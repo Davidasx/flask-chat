@@ -70,7 +70,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 1px 6px 4px;
+    margin: 1px 8px 4px 2px;
 }
 
 .message-bubble {
@@ -92,6 +92,7 @@
 
 .own-row .message-meta {
     justify-content: flex-end;
+    margin: 1px 2px 4px 8px;
 }
 
 .own-row .message-bubble {
@@ -103,7 +104,15 @@
 .username {
     font-weight: 700;
     color: #1f2d3d;
-    margin-right: 8px;
+    margin: 0;
+}
+
+.other-row .message-meta .username {
+    margin-right: 6px;
+}
+
+.own-row .message-meta .username {
+    margin-left: 6px;
 }
 
 .timestamp {

@@ -1,14 +1,14 @@
 <!doctype html>
 <html>
     <head>
-        <title>{{ site_name }}</title>
+        <title>{{ site_name }} v{{ app_version }}</title>
         <link
             rel="stylesheet"
-            href="{{ url_for('static', filename='css/style.css') }}"
+            href="{{ url_for('static', filename='css/style.css', v=static_version) }}"
         />
         <link
             rel="stylesheet"
-            href="{{ url_for('static', filename='css/chat.css') }}"
+            href="{{ url_for('static', filename='css/chat.css', v=static_version) }}"
         />
         <!-- 添加 Socket.IO 客户端库 -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -34,11 +34,13 @@
         </div>
         <script>
             const username = "{{ user_name }}";
-            const currentUserAvatar = "{{ user_avatar or '' }}";
-            const defaultAvatarUrl = "{{ default_avatar_path }}";
+            const currentUserAvatar =
+                "{{ user_avatar or '' }}?v={{ static_version }}";
+            const defaultAvatarUrl =
+                "{{ default_avatar_path }}?v={{ static_version }}";
         </script>
         <!-- 确保在主代码之前加载 Socket.IO -->
-        <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
-        <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/utils.js', v=static_version) }}"></script>
+        <script src="{{ url_for('static', filename='js/chat.js', v=static_version) }}"></script>
     </body>
 </html>

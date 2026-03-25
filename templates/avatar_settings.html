@@ -4,15 +4,15 @@
         <title>{{ site_name }} - 头像设置</title>
         <link
             rel="stylesheet"
-            href="{{ url_for('static', filename='css/style.css') }}"
+            href="{{ url_for('static', filename='css/style.css', v=static_version) }}"
         />
         <link
             rel="stylesheet"
-            href="{{ url_for('static', filename='css/login.css') }}"
+            href="{{ url_for('static', filename='css/login.css', v=static_version) }}"
         />
         <link
             rel="stylesheet"
-            href="{{ url_for('static', filename='css/avatar_settings.css') }}"
+            href="{{ url_for('static', filename='css/avatar_settings.css', v=static_version) }}"
         />
         <link
             rel="stylesheet"
@@ -34,7 +34,7 @@
             <div class="avatar-current">
                 <img
                     id="current-avatar"
-                    src="{{ avatar_url }}"
+                    src="{{ avatar_url }}?v={{ static_version }}"
                     alt="当前头像"
                 />
             </div>
@@ -73,11 +73,12 @@
             </form>
         </div>
 
-        <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/utils.js', v=static_version) }}"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
         <script>
-            const defaultAvatarUrl = "{{ default_avatar_path }}";
+            const defaultAvatarUrl =
+                "{{ default_avatar_path }}?v={{ static_version }}";
         </script>
-        <script src="{{ url_for('static', filename='js/avatar_settings.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/avatar_settings.js', v=static_version) }}"></script>
     </body>
 </html>

@@ -1,4 +1,7 @@
-<link rel="stylesheet" href="{{ url_for('static', filename='css/bar.css') }}" />
+<link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='css/bar.css', v=static_version) }}"
+/>
 <div class="top-bar">
     <div class="site-info">
         <h1>
@@ -6,6 +9,7 @@
                 >{{ site_name }}</a
             >
         </h1>
+        <span class="app-version">v{{ app_version }}</span>
     </div>
     <div class="user-info">
         <div class="dropdown" id="user-dropdown">
@@ -19,7 +23,7 @@
                 <span class="online-indicator"></span>
                 <img
                     class="top-user-avatar"
-                    src="{{ current_user_avatar }}"
+                    src="{{ current_user_avatar }}?v={{ static_version }}"
                     alt="用户头像"
                 />
                 <span>{{ user_name }}</span>
@@ -33,4 +37,4 @@
         </div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/bar.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bar.js', v=static_version) }}"></script>

@@ -27,6 +27,7 @@ ws_connections = {}
 
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
+APP_VERSION = '1.1'
 
 database.init_db()
 
@@ -77,11 +78,18 @@ def _save_avatar_image(username, file_storage):
 def inject_user_context():
     username = session.get('username')
     if not username:
-        return {'current_user_avatar': DEFAULT_AVATAR_PATH, 'default_avatar_path': DEFAULT_AVATAR_PATH}
+        return {
+            'current_user_avatar': DEFAULT_AVATAR_PATH,
+            'default_avatar_path': DEFAULT_AVATAR_PATH,
+            'app_version': APP_VERSION,
+            'static_version': APP_VERSION,
+        }
 
     return {
         'current_user_avatar': _normalize_avatar_path(database.get_avatar_url(username)),
-        'default_avatar_path': DEFAULT_AVATAR_PATH
+        'default_avatar_path': DEFAULT_AVATAR_PATH,
+        'app_version': APP_VERSION,
+        'static_version': APP_VERSION,
     }
 
 def login_required(f):

@@ -23,6 +23,18 @@
     color: #0f172a;
 }
 
+.site-info {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.app-version {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+}
+
 .user-info {
     display: flex;
     align-items: center;
