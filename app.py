@@ -27,7 +27,7 @@ ws_connections = {}
 
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
-APP_VERSION = '1.1'
+APP_VERSION = '1.1.1'
 
 database.init_db()
 
