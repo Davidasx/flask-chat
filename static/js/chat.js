@@ -3,6 +3,7 @@ const socket = io();
 
 let lastMessageId = 0;
 let lastDividerTimeMs = null;
+let activeMessageMenu = null;
 const TIME_DIVIDER_THRESHOLD_MS = 5 * 60 * 1000;
 
 // 更新在线状态指示灯
@@ -51,6 +52,61 @@ function isMessageManageable(data) {
     const isOwn = data.username === username;
     const fromAdmin = Boolean(data.is_admin);
     return isOwn || (userIsAdmin && !fromAdmin);
+}
+
+function closeActiveMessageMenu() {
+    if (activeMessageMenu) {
+        activeMessageMenu.classList.remove("open");
+        activeMessageMenu = null;
+    }
+}
+
+function openMessageMenu(menuElement) {
+    if (activeMessageMenu && activeMessageMenu !== menuElement) {
+        activeMessageMenu.classList.remove("open");
+    }
+
+    menuElement.classList.add("open");
+    activeMessageMenu = menuElement;
+}
+
+function toggleMessageMenu(menuElement) {
+    if (menuElement.classList.contains("open")) {
+        closeActiveMessageMenu();
+        return;
+    }
+
+    openMessageMenu(menuElement);
+}
+
+function requestEditMessage(messageId, rowElement) {
+    const currentContent =
+        rowElement.querySelector(".content")?.textContent || "";
+    const nextMessage = prompt("编辑消息", currentContent);
+    if (nextMessage === null) {
+        return;
+    }
+
+    const trimmed = safeText(nextMessage).trim();
+    if (!trimmed) {
+        showError("消息不能为空");
+        return;
+    }
+
+    socket.emit("edit_message", {
+        id: messageId,
+        message: trimmed,
+    });
+}
+
+function requestDeleteMessage(messageId) {
+    if (!confirm("确定删除这条消息吗？")) {
+        return;
+    }
+
+    socket.emit("delete_message", {
+        id: messageId,
+    });
 }
 
 // 发送消息
@@ -179,50 +235,57 @@ function createMessageElement({
     contentElement.textContent = safeText(data.message);
     bubbleElement.appendChild(contentElement);
 
-    if (isMessageManageable(data)) {
-        const actionsElement = document.createElement("div");
-        actionsElement.className = "message-actions";
+    if (isMessageManageable(data) && typeof data.id === "number") {
+        const menuWrapper = document.createElement("div");
+        menuWrapper.className = "message-actions-menu";
+
+        const triggerButton = document.createElement("button");
+        triggerButton.type = "button";
+        triggerButton.className = "message-menu-trigger";
+        triggerButton.setAttribute("aria-label", "消息操作");
+        triggerButton.textContent = "⋮";
+
+        const menuElement = document.createElement("div");
+        menuElement.className = "message-menu-dropdown";
 
         const editButton = document.createElement("button");
         editButton.type = "button";
-        editButton.className = "message-action-btn";
+        editButton.className = "message-menu-item";
         editButton.textContent = "编辑";
-        editButton.addEventListener("click", () => {
-            const currentContent =
-                rowElement.querySelector(".content")?.textContent || "";
-            const nextMessage = prompt("编辑消息", currentContent);
-            if (nextMessage === null) {
-                return;
-            }
-
-            const trimmed = safeText(nextMessage).trim();
-            if (!trimmed) {
-                showError("消息不能为空");
-                return;
-            }
-
-            socket.emit("edit_message", {
-                id: data.id,
-                message: trimmed,
-            });
+        editButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            closeActiveMessageMenu();
+            requestEditMessage(data.id, rowElement);
         });
 
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
-        deleteButton.className = "message-action-btn danger";
+        deleteButton.className = "message-menu-item danger";
         deleteButton.textContent = "删除";
-        deleteButton.addEventListener("click", () => {
-            if (!confirm("确定删除这条消息吗？")) {
-                return;
-            }
-
-            socket.emit("delete_message", {
-                id: data.id,
-            });
+        deleteButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            closeActiveMessageMenu();
+            requestDeleteMessage(data.id);
         });
 
-        actionsElement.append(editButton, deleteButton);
-        bubbleElement.appendChild(actionsElement);
+        triggerButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleMessageMenu(menuElement);
+        });
+
+        bubbleElement.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openMessageMenu(menuElement);
+        });
+
+        menuElement.addEventListener("click", (event) => {
+            event.stopPropagation();
+        });
+
+        menuElement.append(editButton, deleteButton);
+        menuWrapper.append(triggerButton, menuElement);
+        bubbleElement.appendChild(menuWrapper);
     }
 
     mainElement.append(metaElement, bubbleElement);
@@ -296,6 +359,16 @@ setInterval(() => {
 window.onload = function () {
     scrollToBottom();
 };
+
+document.addEventListener("click", () => {
+    closeActiveMessageMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closeActiveMessageMenu();
+    }
+});
 
 /* --- MISCS FOR MESSAGE DISPLAY --- */
 

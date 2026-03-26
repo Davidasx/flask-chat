@@ -131,13 +131,6 @@
 .timestamp {
     font-size: 0.8em;
     color: #6b7785;
-    opacity: 0;
-    transform: translateY(1px);
-    transition: opacity 0.18s ease;
-}
-
-.message-row:hover .timestamp {
-    opacity: 1;
 }
 
 /* 消息内容 */
@@ -150,26 +143,131 @@
     text-align: left;
 }
 
-.message-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
+.message-actions-menu {
+    position: absolute;
+    top: 50%;
+    right: -36px;
+    transform: translateY(-50%);
 }
 
-.message-action-btn {
-    border: 1px solid #dbe5ef;
-    border-radius: 8px;
-    padding: 3px 8px;
+.own-row .message-actions-menu {
+    right: auto;
+    left: -36px;
+}
+
+.message-menu-trigger {
+    width: 24px;
+    height: 28px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(66, 84, 102, 0.62);
     cursor: pointer;
-    font-size: 12px;
-    color: #334155;
-    background: #f8fbff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0;
+    line-height: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
 }
 
-.message-action-btn.danger {
+.message-menu-trigger::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow:
+        0 -6px 0 currentColor,
+        0 6px 0 currentColor;
+    transition: background-color 0.16s ease;
+}
+
+.message-menu-trigger:hover,
+.message-menu-trigger:focus-visible,
+.message-menu-trigger:active {
+    color: rgba(30, 41, 59, 0.92);
+}
+
+.message-row:hover .message-menu-trigger,
+.message-menu-trigger:focus-visible,
+.message-menu-trigger:active,
+.message-menu-dropdown.open {
+    opacity: 1;
+}
+
+.message-row:hover .message-menu-trigger,
+.message-menu-trigger:focus-visible,
+.message-menu-trigger:active {
+    pointer-events: auto;
+}
+
+.message-menu-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 96px;
+    background: #ffffff;
+    border: 1px solid #dde6f0;
+    border-radius: 10px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+    padding: 4px;
+    display: none;
+    z-index: 5;
+}
+
+.own-row .message-menu-dropdown {
+    right: auto;
+    left: 0;
+}
+
+.message-menu-dropdown.open {
+    display: block;
+}
+
+.message-menu-item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: #1f2937;
+    text-align: left;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.message-menu-item:hover {
+    background: #f1f5f9;
+}
+
+.message-menu-item.danger {
     color: #b91c1c;
+}
+
+.message-menu-item.danger:hover {
     background: #fff1f2;
-    border-color: #fecaca;
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .message-actions-menu {
+        right: -34px;
+    }
+
+    .own-row .message-actions-menu {
+        left: -34px;
+    }
+
+    .message-menu-trigger {
+        opacity: 0.9;
+        pointer-events: auto;
+        width: 28px;
+        height: 28px;
+        color: rgba(66, 84, 102, 0.86);
+    }
 }
 
 /* 输入区域 */
