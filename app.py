@@ -27,7 +27,8 @@ ws_connections = {}
 
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
-APP_VERSION = '1.1.1'
+APP_VERSION = '1.1.2'
+MAX_CHAT_MESSAGE_LENGTH = 500
 
 database.init_db()
 
@@ -47,6 +48,20 @@ def _delete_local_avatar_file(avatar_path):
     local_path = os.path.join(app.root_path, avatar_path.lstrip('/'))
     if os.path.exists(local_path):
         os.remove(local_path)
+
+
+def _normalize_chat_message(raw_message):
+    if raw_message is None:
+        return ''
+
+    if not isinstance(raw_message, str):
+        raw_message = str(raw_message)
+
+    cleaned_message = raw_message.replace('\x00', '').strip()
+    if len(cleaned_message) > MAX_CHAT_MESSAGE_LENGTH:
+        cleaned_message = cleaned_message[:MAX_CHAT_MESSAGE_LENGTH]
+
+    return cleaned_message
 
 
 def _save_avatar_image(username, file_storage):
@@ -435,7 +450,8 @@ def handle_message(data):
         return
     
     username = session['username']
-    message = data.get('message', '').strip()
+    payload = data if isinstance(data, dict) else {}
+    message = _normalize_chat_message(payload.get('message'))
     
     if message:
         # 保存消息到数据库
@@ -443,11 +459,13 @@ def handle_message(data):
 
         # 获取最新消息以确保时间格式一致
         last_message = database.get_last_message()
+        if not last_message:
+            return
         
         # 广播消息给所有连接的客户端
         emit('message', {
             'username': username,
-            'message': message,
+            'message': last_message['message'],
             'timestamp': last_message['timestamp'],
             'id': last_message['id'],
             'avatar_url': _normalize_avatar_path(last_message['avatar_url'])

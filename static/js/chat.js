@@ -49,7 +49,7 @@ const sendButton = document.getElementById("send-button");
 
 // 发送消息
 function sendMessage() {
-    const message = sanitizeMessage(messageInput.value.trim());
+    const message = safeText(messageInput.value).trim();
     if (message) {
         socket.emit("send_message", { message: message });
         messageInput.value = "";
@@ -103,9 +103,7 @@ socket.on("message", function (data) {
         data.username,
     );
 
-    const messageElement = document.createElement("div");
-    messageElement.className = `message-row ${isOwn ? "own-row" : "other-row"}`;
-    messageElement.innerHTML = messageContent({
+    const messageElement = createMessageElement({
         isOwn,
         avatarUrl,
         transformed_timestamp,
@@ -118,22 +116,60 @@ socket.on("message", function (data) {
     }
     scrollToBottom();
 
-    function messageContent({ isOwn, avatarUrl, transformed_timestamp, data }) {
-        const timeHtml = `<span class="timestamp">${transformed_timestamp}</span>`;
-        const nameHtml = `<span class="username">${sanitizeMessage(data.username)}</span>`;
+    function createMessageElement({
+        isOwn,
+        avatarUrl,
+        transformed_timestamp,
+        data,
+    }) {
+        const rowElement = document.createElement("div");
+        rowElement.className = `message-row ${isOwn ? "own-row" : "other-row"}`;
 
-        return `
-            ${isOwn ? "" : `<img class=\"message-avatar\" src=\"${avatarUrl}\" alt=\"${sanitizeMessage(data.username)}头像\">`}
-            <div class="message-main">
-                <div class="message-meta">
-                    ${isOwn ? `${timeHtml}${nameHtml}` : `${nameHtml}${timeHtml}`}
-                </div>
-                <div class="message-bubble">
-                    <p class="content">${sanitizeMessage(data.message)}</p>
-                </div>
-            </div>
-            ${isOwn ? `<img class=\"message-avatar\" src=\"${avatarUrl}\" alt=\"${sanitizeMessage(data.username)}头像\">` : ""}
-        `;
+        const mainElement = document.createElement("div");
+        mainElement.className = "message-main";
+
+        const metaElement = document.createElement("div");
+        metaElement.className = "message-meta";
+
+        const timeElement = document.createElement("span");
+        timeElement.className = "timestamp";
+        timeElement.textContent = transformed_timestamp;
+
+        const nameElement = document.createElement("span");
+        nameElement.className = "username";
+        nameElement.textContent = safeText(data.username);
+
+        if (isOwn) {
+            metaElement.append(timeElement, nameElement);
+        } else {
+            metaElement.append(nameElement, timeElement);
+        }
+
+        const bubbleElement = document.createElement("div");
+        bubbleElement.className = "message-bubble";
+
+        const contentElement = document.createElement("p");
+        contentElement.className = "content";
+        contentElement.textContent = safeText(data.message);
+        bubbleElement.appendChild(contentElement);
+
+        mainElement.append(metaElement, bubbleElement);
+
+        if (!isOwn) {
+            rowElement.appendChild(
+                createAvatarElement(avatarUrl, data.username),
+            );
+        }
+
+        rowElement.appendChild(mainElement);
+
+        if (isOwn) {
+            rowElement.appendChild(
+                createAvatarElement(avatarUrl, data.username),
+            );
+        }
+
+        return rowElement;
     }
 });
 
@@ -157,10 +193,22 @@ window.onload = function () {
 
 /* --- MISCS FOR MESSAGE DISPLAY --- */
 
-function sanitizeMessage(message) {
-    const tempElement = document.createElement("div");
-    tempElement.textContent = message;
-    return tempElement.innerText;
+function safeText(value) {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (value === null || value === undefined) {
+        return "";
+    }
+    return String(value);
+}
+
+function createAvatarElement(avatarUrl, userName) {
+    const avatarElement = document.createElement("img");
+    avatarElement.className = "message-avatar";
+    avatarElement.src = avatarUrl;
+    avatarElement.alt = `${safeText(userName)}头像`;
+    return avatarElement;
 }
 
 function resolveAvatarUrl(avatarUrl, userName) {
