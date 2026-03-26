@@ -11,6 +11,9 @@
 - 修改密码
 - 实时聊天
 - 历史消息查看
+- 消息编辑与删除（本人可操作；管理员可管理非管理员消息）
+- 账号安全会话管理（可查看并强制下线其他设备会话）
+- 管理员面板（授权密码进入、查看用户与服务状态、设置管理员、强制下线会话）
 
 ## 快速开始
 
@@ -39,6 +42,7 @@ cp config.json.template config.json
 - `verification_sender.resend_api_key`：Resend API Key（启用邮箱验证时必填）
 - `verification_sender.sender_email`：发件人邮箱（启用邮箱验证时必填）
 - `verification_sender.recipient_domain`：限制可注册邮箱域名；`*` 表示不限制
+- `admin_access_password`：管理员面板授权密码（留空时回退使用 `secret_key`）
 - `secret_key`：Flask 会话与 JWT 使用的密钥（建议使用高强度随机字符串）
 - `site_name`：站点名称（显示在页面标题和导航栏）
 - `server`（可选）：仅 `python app.py` 开发模式读取，生产 `gunicorn` 不依赖
@@ -49,6 +53,7 @@ cp config.json.template config.json
 {
     "database": "chat.db",
     "email_verification": false,
+    "admin_access_password": "",
     "verification_sender": {
         "resend_api_key": "",
         "sender_email": "user@example.com",

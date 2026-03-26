@@ -1,6 +1,7 @@
 {
     "database": "chat.db",
     "email_verification": false,
+    "admin_access_password": "",
     "verification_sender": {
         "resend_api_key": "",
         "sender_email": "user@example.com",

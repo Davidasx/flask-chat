@@ -34,6 +34,8 @@
         </div>
         <script>
             const username = "{{ user_name }}";
+            const userIsAdmin =
+                "{{ 'true' if user_is_admin else 'false' }}" === "true";
             const currentUserAvatar =
                 "{{ user_avatar or '' }}?v={{ static_version }}";
             const defaultAvatarUrl =

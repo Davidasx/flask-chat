@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+    <head>
+        <title>{{ site_name }} - 账号安全</title>
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/style.css', v=static_version) }}"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/security_sessions.css', v=static_version) }}"
+        />
+    </head>
+
+    <body>
+        {% include 'bar.html' %}
+        <div
+            id="error-message"
+            class="error-message"
+            style="display: none"
+        ></div>
+
+        <div class="security-container">
+            <h2>账号安全</h2>
+            <p>可以查看当前账号在其他设备上的登录会话，并将其下线。</p>
+
+            <div class="card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>状态</th>
+                            <th>IP</th>
+                            <th>设备信息</th>
+                            <th>创建时间</th>
+                            <th>最近活跃</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="security-sessions-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <script src="{{ url_for('static', filename='js/utils.js', v=static_version) }}"></script>
+        <script src="{{ url_for('static', filename='js/security_sessions.js', v=static_version) }}"></script>
+    </body>
+</html>

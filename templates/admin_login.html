@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+    <head>
+        <title>{{ site_name }} - 管理员授权</title>
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/style.css', v=static_version) }}"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/login.css', v=static_version) }}"
+        />
+    </head>
+
+    <body>
+        <div class="container">
+            <h2>管理员面板授权</h2>
+            <div
+                id="error-message"
+                class="error-message"
+                style="display: none"
+            ></div>
+            <form id="admin-login-form">
+                <div class="form-group">
+                    <label for="admin-password">授权密码:</label>
+                    <input type="password" id="admin-password" required />
+                </div>
+                <button type="submit">进入管理员面板</button>
+            </form>
+        </div>
+
+        <script src="{{ url_for('static', filename='js/utils.js', v=static_version) }}"></script>
+        <script src="{{ url_for('static', filename='js/admin_login.js', v=static_version) }}"></script>
+    </body>
+</html>

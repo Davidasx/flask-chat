@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+    <head>
+        <title>{{ site_name }} - 管理员面板</title>
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/style.css', v=static_version) }}"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/admin.css', v=static_version) }}"
+        />
+    </head>
+
+    <body>
+        <div
+            id="error-message"
+            class="error-message"
+            style="display: none"
+        ></div>
+
+        <div class="admin-container">
+            <h2>管理员面板</h2>
+
+            <section class="card" id="runtime-card">
+                <h3>服务端运行状况</h3>
+                <div class="grid-status" id="runtime-status"></div>
+            </section>
+
+            <section class="card" id="users-card">
+                <h3>注册用户信息</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>用户名</th>
+                            <th>邮箱</th>
+                            <th>管理员</th>
+                            <th>会话数</th>
+                            <th>创建时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body"></tbody>
+                </table>
+            </section>
+
+            <section class="card" id="sessions-card">
+                <h3>在线会话</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>用户名</th>
+                            <th>IP</th>
+                            <th>设备</th>
+                            <th>最近活跃</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessions-table-body"></tbody>
+                </table>
+            </section>
+        </div>
+
+        <script src="{{ url_for('static', filename='js/utils.js', v=static_version) }}"></script>
+        <script src="{{ url_for('static', filename='js/admin.js', v=static_version) }}"></script>
+    </body>
+</html>

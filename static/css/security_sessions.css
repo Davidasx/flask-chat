@@ -1,0 +1,54 @@
+.security-container {
+    margin: 90px auto 20px;
+    width: min(980px, calc(100vw - 24px));
+}
+
+.security-container p {
+    color: #475569;
+    margin: 6px 0 12px;
+}
+
+.card {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #e6edf4;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 8px 26px rgba(15, 23, 42, 0.08);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    border-bottom: 1px solid #e9eff6;
+    text-align: left;
+    vertical-align: top;
+    padding: 9px 8px;
+    font-size: 13px;
+}
+
+th {
+    color: #334155;
+    background: #f8fbff;
+}
+
+.state-current {
+    color: #16a34a;
+    font-weight: 700;
+}
+
+.state-other {
+    color: #475569;
+}
+
+.danger-btn {
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    background: #fff1f2;
+    color: #b91c1c;
+}

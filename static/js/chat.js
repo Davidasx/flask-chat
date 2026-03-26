@@ -47,6 +47,12 @@ const messagesContainer = document.getElementById("messages");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 
+function isMessageManageable(data) {
+    const isOwn = data.username === username;
+    const fromAdmin = Boolean(data.is_admin);
+    return isOwn || (userIsAdmin && !fromAdmin);
+}
+
 // 发送消息
 function sendMessage() {
     const message = safeText(messageInput.value).trim();
@@ -63,6 +69,15 @@ function scrollToBottom() {
 
 // 接收消息
 socket.on("message", function (data) {
+    if (typeof data.id === "number") {
+        const existing = document.querySelector(
+            `.message-row[data-id="${data.id}"]`,
+        );
+        if (existing) {
+            return;
+        }
+    }
+
     if (typeof data.id === "number" && data.id <= lastMessageId) {
         return;
     }
@@ -115,61 +130,152 @@ socket.on("message", function (data) {
         lastMessageId = data.id;
     }
     scrollToBottom();
+});
 
-    function createMessageElement({
-        isOwn,
-        avatarUrl,
-        transformed_timestamp,
-        data,
-    }) {
-        const rowElement = document.createElement("div");
-        rowElement.className = `message-row ${isOwn ? "own-row" : "other-row"}`;
+function createMessageElement({
+    isOwn,
+    avatarUrl,
+    transformed_timestamp,
+    data,
+}) {
+    const rowElement = document.createElement("div");
+    rowElement.className = `message-row ${isOwn ? "own-row" : "other-row"}`;
+    if (typeof data.id === "number") {
+        rowElement.dataset.id = String(data.id);
+    }
 
-        const mainElement = document.createElement("div");
-        mainElement.className = "message-main";
+    const mainElement = document.createElement("div");
+    mainElement.className = "message-main";
 
-        const metaElement = document.createElement("div");
-        metaElement.className = "message-meta";
+    const metaElement = document.createElement("div");
+    metaElement.className = "message-meta";
 
-        const timeElement = document.createElement("span");
-        timeElement.className = "timestamp";
-        timeElement.textContent = transformed_timestamp;
+    const timeElement = document.createElement("span");
+    timeElement.className = "timestamp";
+    timeElement.textContent = transformed_timestamp;
 
-        const nameElement = document.createElement("span");
-        nameElement.className = "username";
-        nameElement.textContent = safeText(data.username);
+    const nameElement = document.createElement("span");
+    nameElement.className = `username ${data.is_admin ? "admin-username" : ""}`;
+    nameElement.textContent = safeText(data.username);
 
-        if (isOwn) {
-            metaElement.append(timeElement, nameElement);
-        } else {
-            metaElement.append(nameElement, timeElement);
-        }
+    if (isOwn) {
+        metaElement.append(timeElement, nameElement);
+    } else {
+        metaElement.append(nameElement, timeElement);
+    }
 
-        const bubbleElement = document.createElement("div");
-        bubbleElement.className = "message-bubble";
+    if (data.edited_at) {
+        const editedTag = document.createElement("span");
+        editedTag.className = "edited-tag";
+        editedTag.textContent = "已编辑";
+        metaElement.appendChild(editedTag);
+    }
 
-        const contentElement = document.createElement("p");
-        contentElement.className = "content";
+    const bubbleElement = document.createElement("div");
+    bubbleElement.className = "message-bubble";
+
+    const contentElement = document.createElement("p");
+    contentElement.className = "content";
+    contentElement.textContent = safeText(data.message);
+    bubbleElement.appendChild(contentElement);
+
+    if (isMessageManageable(data)) {
+        const actionsElement = document.createElement("div");
+        actionsElement.className = "message-actions";
+
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "message-action-btn";
+        editButton.textContent = "编辑";
+        editButton.addEventListener("click", () => {
+            const currentContent =
+                rowElement.querySelector(".content")?.textContent || "";
+            const nextMessage = prompt("编辑消息", currentContent);
+            if (nextMessage === null) {
+                return;
+            }
+
+            const trimmed = safeText(nextMessage).trim();
+            if (!trimmed) {
+                showError("消息不能为空");
+                return;
+            }
+
+            socket.emit("edit_message", {
+                id: data.id,
+                message: trimmed,
+            });
+        });
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "message-action-btn danger";
+        deleteButton.textContent = "删除";
+        deleteButton.addEventListener("click", () => {
+            if (!confirm("确定删除这条消息吗？")) {
+                return;
+            }
+
+            socket.emit("delete_message", {
+                id: data.id,
+            });
+        });
+
+        actionsElement.append(editButton, deleteButton);
+        bubbleElement.appendChild(actionsElement);
+    }
+
+    mainElement.append(metaElement, bubbleElement);
+
+    if (!isOwn) {
+        rowElement.appendChild(createAvatarElement(avatarUrl, data.username));
+    }
+
+    rowElement.appendChild(mainElement);
+
+    if (isOwn) {
+        rowElement.appendChild(createAvatarElement(avatarUrl, data.username));
+    }
+
+    return rowElement;
+}
+
+socket.on("message_updated", function (data) {
+    if (typeof data.id !== "number") {
+        return;
+    }
+
+    const rowElement = document.querySelector(
+        `.message-row[data-id="${data.id}"]`,
+    );
+    if (!rowElement) {
+        return;
+    }
+
+    const contentElement = rowElement.querySelector(".content");
+    if (contentElement) {
         contentElement.textContent = safeText(data.message);
-        bubbleElement.appendChild(contentElement);
+    }
 
-        mainElement.append(metaElement, bubbleElement);
+    const metaElement = rowElement.querySelector(".message-meta");
+    if (metaElement && !metaElement.querySelector(".edited-tag")) {
+        const editedTag = document.createElement("span");
+        editedTag.className = "edited-tag";
+        editedTag.textContent = "已编辑";
+        metaElement.appendChild(editedTag);
+    }
+});
 
-        if (!isOwn) {
-            rowElement.appendChild(
-                createAvatarElement(avatarUrl, data.username),
-            );
-        }
+socket.on("message_deleted", function (data) {
+    if (typeof data.id !== "number") {
+        return;
+    }
 
-        rowElement.appendChild(mainElement);
-
-        if (isOwn) {
-            rowElement.appendChild(
-                createAvatarElement(avatarUrl, data.username),
-            );
-        }
-
-        return rowElement;
+    const rowElement = document.querySelector(
+        `.message-row[data-id="${data.id}"]`,
+    );
+    if (rowElement) {
+        rowElement.remove();
     }
 });
 

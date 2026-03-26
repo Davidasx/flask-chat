@@ -27,8 +27,9 @@ ws_connections = {}
 
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
-APP_VERSION = '1.1.2'
+APP_VERSION = '1.2.0'
 MAX_CHAT_MESSAGE_LENGTH = 500
+APP_STARTED_AT_UTC = datetime.datetime.utcnow()
 
 database.init_db()
 
@@ -98,6 +99,7 @@ def inject_user_context():
             'default_avatar_path': DEFAULT_AVATAR_PATH,
             'app_version': APP_VERSION,
             'static_version': APP_VERSION,
+            'current_user_is_admin': False,
         }
 
     return {
@@ -105,7 +107,40 @@ def inject_user_context():
         'default_avatar_path': DEFAULT_AVATAR_PATH,
         'app_version': APP_VERSION,
         'static_version': APP_VERSION,
+        'current_user_is_admin': database.is_admin(username),
     }
+
+
+def _is_admin_panel_authorized():
+    return bool(session.get('admin_panel_authorized'))
+
+
+def _get_admin_access_password():
+    configured_password = str(config.get('admin_access_password', '') or '').strip()
+    if configured_password:
+        return configured_password
+    return str(config.get('secret_key', '') or '')
+
+
+def _build_runtime_status():
+    uptime_seconds = int((datetime.datetime.utcnow() - APP_STARTED_AT_UTC).total_seconds())
+    return {
+        'app_version': APP_VERSION,
+        'server_time_utc': datetime.datetime.utcnow().isoformat(),
+        'uptime_seconds': uptime_seconds,
+        'active_ws_connections': len(ws_connections),
+        'registered_users': database.get_user_count(),
+    }
+
+
+def admin_panel_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not _is_admin_panel_authorized():
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
+
+    return decorated_function
 
 def login_required(f):
     @wraps(f)
@@ -117,6 +152,7 @@ def login_required(f):
             return redirect(url_for('login'))
             
         if database.verify_session(username, token):
+            database.update_session_seen(username, token)
             return f(*args, **kwargs)
         else:
             session.clear()
@@ -158,8 +194,123 @@ def chat():
         site_name=app.config['SITE_NAME'],
         user_name=session.get('username'),
         user_avatar=_normalize_avatar_path(database.get_avatar_url(session.get('username'))),
-        default_avatar_path=DEFAULT_AVATAR_PATH
+        default_avatar_path=DEFAULT_AVATAR_PATH,
+        user_is_admin=database.is_admin(session.get('username'))
     )
+
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or request.form or {}
+        password = str(payload.get('password', '')).strip()
+        if not password:
+            return jsonify({'error': '请输入授权密码'}), 400
+
+        if password != _get_admin_access_password():
+            return jsonify({'error': '授权密码错误'}), 401
+
+        session['admin_panel_authorized'] = True
+        return jsonify({'message': '授权成功', 'redirect': url_for('admin_panel')})
+
+    return render_template('admin_login.html', site_name=app.config['SITE_NAME'])
+
+
+@app.route('/admin/logout', methods=['POST'])
+def admin_logout():
+    session.pop('admin_panel_authorized', None)
+    return jsonify({'message': '已退出管理员面板授权'})
+
+
+@app.route('/admin')
+@admin_panel_required
+def admin_panel():
+    return render_template('admin.html', site_name=app.config['SITE_NAME'])
+
+
+@app.route('/admin/api/summary')
+@admin_panel_required
+def admin_summary_api():
+    return jsonify({
+        'runtime': _build_runtime_status(),
+        'users': [dict(row) for row in database.get_all_users()],
+        'sessions': [dict(row) for row in database.get_all_sessions()],
+    })
+
+
+@app.route('/admin/api/set-admin', methods=['POST'])
+@admin_panel_required
+def admin_set_admin():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get('username', '')).strip()
+    admin_enabled = bool(payload.get('is_admin', True))
+
+    if not username:
+        return jsonify({'error': '用户名不能为空'}), 400
+
+    if not database.user_exists(username):
+        return jsonify({'error': '用户不存在'}), 404
+
+    if not database.set_admin(username, admin_enabled):
+        return jsonify({'error': '管理员状态设置失败'}), 500
+
+    return jsonify({'message': f'用户 {username} 管理员状态已更新'})
+
+
+@app.route('/admin/api/kick-session', methods=['POST'])
+@admin_panel_required
+def admin_kick_session_api():
+    payload = request.get_json(silent=True) or {}
+    token = str(payload.get('token', '')).strip()
+    if not token:
+        return jsonify({'error': '会话标识不能为空'}), 400
+
+    session_item = database.get_session_by_token(token)
+    if not session_item:
+        return jsonify({'error': '会话不存在'}), 404
+
+    kick_session(session_item['username'], token)
+    return jsonify({'message': '会话已强制下线'})
+
+
+@app.route('/security/sessions')
+@login_required
+def security_sessions_page():
+    return render_template('security_sessions.html', site_name=app.config['SITE_NAME'], user_name=session.get('username'))
+
+
+@app.route('/security/sessions/list')
+@login_required
+def security_sessions_list():
+    username = session.get('username')
+    current_token = session.get('token')
+    sessions_data = []
+    for item in database.get_user_sessions(username):
+        session_dict = dict(item)
+        session_dict['is_current'] = session_dict.get('token') == current_token
+        sessions_data.append(session_dict)
+    return jsonify({'sessions': sessions_data})
+
+
+@app.route('/security/sessions/kick', methods=['POST'])
+@login_required
+def security_sessions_kick():
+    payload = request.get_json(silent=True) or {}
+    token = str(payload.get('token', '')).strip()
+    username = session.get('username')
+
+    if not token:
+        return jsonify({'error': '会话标识不能为空'}), 400
+
+    if token == session.get('token'):
+        return jsonify({'error': '不能终止当前正在使用的会话'}), 400
+
+    target_session = database.get_session_by_token(token)
+    if not target_session or target_session['username'] != username:
+        return jsonify({'error': '会话不存在或无权限'}), 404
+
+    kick_session(username, token)
+    return jsonify({'message': '目标设备会话已下线'})
 
 
 @app.route('/avatar-settings', methods=['GET', 'POST'])
@@ -295,7 +446,12 @@ def login():
             session['token'] = token
             session['username'] = username
 
-            database.add_session(username, token)
+            database.add_session(
+                username,
+                token,
+                user_agent=request.headers.get('User-Agent', ''),
+                ip_address=request.headers.get('X-Forwarded-For', request.remote_addr or '')
+            )
 
             return jsonify({
                 'token': token,
@@ -361,6 +517,8 @@ def handle_connect():
         ws_connections[token] = request.sid
         Timer(2.0, close_ws_connection, args=[username, token]).start()
         return True
+
+    database.update_session_seen(username, token)
     
     # 存储连接
     ws_connections[token] = request.sid
@@ -373,7 +531,9 @@ def handle_connect():
             'message': message['message'],
             'timestamp': message['timestamp'],
             'id': message['id'],
-            'avatar_url': _normalize_avatar_path(message['avatar_url'])
+            'avatar_url': _normalize_avatar_path(message['avatar_url']),
+            'edited_at': message['edited_at'],
+            'is_admin': bool(message['is_admin'])
         })
 
     # 发送用户上线通知
@@ -448,6 +608,8 @@ def handle_message(data):
     # 阻止未授权的用户发送消息
     if not database.verify_session(session['username'], session['token']):
         return
+
+    database.update_session_seen(session['username'], session['token'])
     
     username = session['username']
     payload = data if isinstance(data, dict) else {}
@@ -468,8 +630,93 @@ def handle_message(data):
             'message': last_message['message'],
             'timestamp': last_message['timestamp'],
             'id': last_message['id'],
-            'avatar_url': _normalize_avatar_path(last_message['avatar_url'])
+            'avatar_url': _normalize_avatar_path(last_message['avatar_url']),
+            'edited_at': last_message['edited_at'],
+            'is_admin': bool(last_message['is_admin'])
         }, broadcast=True)
+
+
+@socketio.on('edit_message')
+def handle_edit_message(data):
+    username = session.get('username')
+    token = session.get('token')
+    if not username or not token:
+        return
+
+    if not database.verify_session(username, token):
+        return
+
+    payload = data if isinstance(data, dict) else {}
+    try:
+        message_id = int(payload.get('id', 0))
+    except (TypeError, ValueError):
+        return
+
+    new_message = _normalize_chat_message(payload.get('message'))
+    if not message_id or not new_message:
+        return
+
+    original_message = database.get_message_by_id(message_id)
+    if not original_message:
+        return
+
+    current_user_is_admin = database.is_admin(username)
+    original_author_is_admin = bool(original_message['is_admin'])
+    is_owner = original_message['username'] == username
+    can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
+    if not can_manage:
+        return
+
+    if not database.update_message(message_id, new_message):
+        return
+
+    updated_message = database.get_message_by_id(message_id)
+    if not updated_message:
+        return
+
+    emit('message_updated', {
+        'id': updated_message['id'],
+        'message': updated_message['message'],
+        'edited_at': updated_message['edited_at'],
+    }, broadcast=True)
+
+
+@socketio.on('delete_message')
+def handle_delete_message(data):
+    username = session.get('username')
+    token = session.get('token')
+    if not username or not token:
+        return
+
+    if not database.verify_session(username, token):
+        return
+
+    payload = data if isinstance(data, dict) else {}
+    try:
+        message_id = int(payload.get('id', 0))
+    except (TypeError, ValueError):
+        return
+
+    if not message_id:
+        return
+
+    original_message = database.get_message_by_id(message_id)
+    if not original_message:
+        return
+
+    current_user_is_admin = database.is_admin(username)
+    original_author_is_admin = bool(original_message['is_admin'])
+    is_owner = original_message['username'] == username
+    can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
+    if not can_manage:
+        return
+
+    if not database.delete_message(message_id):
+        return
+
+    emit('message_deleted', {
+        'id': message_id,
+    }, broadcast=True)
 
 @socketio.on('check_messages')
 def handle_check_messages(data):
@@ -487,7 +734,9 @@ def handle_check_messages(data):
             'username': message['username'],
             'message': message['message'],
             'timestamp': message['timestamp'],
-            'avatar_url': _normalize_avatar_path(message['avatar_url'])
+            'avatar_url': _normalize_avatar_path(message['avatar_url']),
+            'edited_at': message['edited_at'],
+            'is_admin': bool(message['is_admin'])
         })
 
 # 使用服务器配置

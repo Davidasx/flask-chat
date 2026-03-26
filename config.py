@@ -7,6 +7,7 @@ import copy
 DEFAULT_CONFIG = {
     "database": "chat.db",
     "email_verification": False,
+    "admin_access_password": "",
     "verification_sender": {
         "resend_api_key": "",
         "sender_email": "user@example.com",

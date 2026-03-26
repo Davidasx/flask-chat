@@ -28,7 +28,8 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
                 message TEXT NOT NULL,
-                timestamp DATETIME
+                timestamp DATETIME,
+                edited_at DATETIME DEFAULT NULL
             )
         ''')
         
@@ -40,6 +41,7 @@ def init_db():
                 password TEXT NOT NULL,
                 email TEXT DEFAULT NULL,
                 avatar_url TEXT DEFAULT NULL,
+                is_admin INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -49,6 +51,13 @@ def init_db():
         column_names = {column['name'] for column in columns}
         if 'avatar_url' not in column_names:
             conn.execute('ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT NULL')
+        if 'is_admin' not in column_names:
+            conn.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0')
+
+        message_columns = conn.execute('PRAGMA table_info(messages)').fetchall()
+        message_column_names = {column['name'] for column in message_columns}
+        if 'edited_at' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN edited_at DATETIME DEFAULT NULL')
 
         # 创建会话表
         conn.execute('''
@@ -56,19 +65,32 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
                 token TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                user_agent TEXT DEFAULT '',
+                ip_address TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        session_columns = conn.execute('PRAGMA table_info(sessions)').fetchall()
+        session_column_names = {column['name'] for column in session_columns}
+        if 'user_agent' not in session_column_names:
+            conn.execute("ALTER TABLE sessions ADD COLUMN user_agent TEXT DEFAULT ''")
+        if 'ip_address' not in session_column_names:
+            conn.execute("ALTER TABLE sessions ADD COLUMN ip_address TEXT DEFAULT ''")
+        if 'last_seen' not in session_column_names:
+            conn.execute('ALTER TABLE sessions ADD COLUMN last_seen DATETIME')
+            conn.execute('UPDATE sessions SET last_seen = CURRENT_TIMESTAMP WHERE last_seen IS NULL')
     close_db_connection(conn)
 
 # 新增会话
-def add_session(username, token):
+def add_session(username, token, user_agent='', ip_address=''):
     conn = get_db_connection()
     try:
         with conn:
             conn.execute(
-                'INSERT INTO sessions (username, token) VALUES (?, ?)',
-                (username, token)
+                'INSERT INTO sessions (username, token, user_agent, ip_address, last_seen) VALUES (?, ?, ?, ?, ?)',
+                (username, token, user_agent or '', ip_address or '', datetime.datetime.utcnow())
             )
         return True
     except sqlite3.IntegrityError:
@@ -95,11 +117,90 @@ def remove_session(username, token):
 def get_sessions(username):
     conn = get_db_connection()
     sessions = conn.execute(
-        'SELECT * FROM sessions WHERE username = ?',
+        'SELECT * FROM sessions WHERE username = ? ORDER BY created_at DESC',
         (username,)
     ).fetchall()
     close_db_connection(conn)
     return sessions
+
+
+def get_session_by_token(token):
+    conn = get_db_connection()
+    session_item = conn.execute(
+        'SELECT * FROM sessions WHERE token = ?',
+        (token,)
+    ).fetchone()
+    close_db_connection(conn)
+    return session_item
+
+
+def update_session_seen(username, token):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                'UPDATE sessions SET last_seen = ? WHERE username = ? AND token = ?',
+                (datetime.datetime.utcnow(), username, token)
+            )
+        return True
+    except Exception as e:
+        print(f"Error updating session seen: {e}")
+        return False
+    finally:
+        close_db_connection(conn)
+
+
+def remove_session_by_token(token):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                'DELETE FROM sessions WHERE token = ?',
+                (token,)
+            )
+        return True
+    except Exception as e:
+        print(f"Error removing session by token: {e}")
+        return False
+    finally:
+        close_db_connection(conn)
+
+
+def get_user_sessions(username, exclude_token=None):
+    conn = get_db_connection()
+    try:
+        if exclude_token:
+            sessions = conn.execute(
+                'SELECT id, username, token, user_agent, ip_address, created_at, last_seen FROM sessions WHERE username = ? AND token != ? ORDER BY last_seen DESC',
+                (username, exclude_token)
+            ).fetchall()
+        else:
+            sessions = conn.execute(
+                'SELECT id, username, token, user_agent, ip_address, created_at, last_seen FROM sessions WHERE username = ? ORDER BY last_seen DESC',
+                (username,)
+            ).fetchall()
+        return sessions
+    finally:
+        close_db_connection(conn)
+
+
+def get_all_sessions(limit=300):
+    conn = get_db_connection()
+    try:
+        sessions = conn.execute(
+            '''
+            SELECT sessions.id, sessions.username, sessions.token, sessions.user_agent, sessions.ip_address,
+                   sessions.created_at, sessions.last_seen, users.is_admin
+            FROM sessions
+            LEFT JOIN users ON users.username = sessions.username
+            ORDER BY sessions.last_seen DESC
+            LIMIT ?
+            ''',
+            (limit,)
+        ).fetchall()
+        return sessions
+    finally:
+        close_db_connection(conn)
 
 # 测试会话是否有效
 def verify_session(username, token):
@@ -205,6 +306,57 @@ def get_user(username):
     return user
 
 
+def is_admin(username):
+    conn = get_db_connection()
+    user = conn.execute(
+        'SELECT is_admin FROM users WHERE username = ?',
+        (username,)
+    ).fetchone()
+    close_db_connection(conn)
+    return bool(user and user['is_admin'])
+
+
+def set_admin(username, is_admin_flag=True):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                'UPDATE users SET is_admin = ? WHERE username = ?',
+                (1 if is_admin_flag else 0, username)
+            )
+        return True
+    except Exception as e:
+        print(f"Error setting admin: {e}")
+        return False
+    finally:
+        close_db_connection(conn)
+
+
+def get_all_users():
+    conn = get_db_connection()
+    try:
+        users = conn.execute(
+            '''
+            SELECT users.username, users.email, users.is_admin, users.created_at,
+                   COUNT(sessions.id) AS session_count
+            FROM users
+            LEFT JOIN sessions ON sessions.username = users.username
+            GROUP BY users.username, users.email, users.is_admin, users.created_at
+            ORDER BY users.created_at DESC
+            '''
+        ).fetchall()
+        return users
+    finally:
+        close_db_connection(conn)
+
+
+def get_user_count():
+    conn = get_db_connection()
+    item = conn.execute('SELECT COUNT(*) AS total FROM users').fetchone()
+    close_db_connection(conn)
+    return int(item['total']) if item else 0
+
+
 def get_avatar_url(username):
     conn = get_db_connection()
     avatar = conn.execute(
@@ -273,7 +425,7 @@ def get_last_message():
         conn = get_db_connection()
         message = conn.execute(
             '''
-            SELECT messages.*, users.avatar_url AS avatar_url
+            SELECT messages.*, users.avatar_url AS avatar_url, users.is_admin AS is_admin
             FROM messages
             LEFT JOIN users ON users.username = messages.username
             ORDER BY messages.id DESC
@@ -290,7 +442,7 @@ def get_messages(last_id=0, limit=50, timezone_offset=0):
         conn = get_db_connection()
         messages = conn.execute(
             '''
-            SELECT messages.*, users.avatar_url AS avatar_url
+            SELECT messages.*, users.avatar_url AS avatar_url, users.is_admin AS is_admin
             FROM messages
             LEFT JOIN users ON users.username = messages.username
             WHERE messages.id > ?
@@ -317,3 +469,49 @@ def add_message(username, message):
     except Exception as e:
         print(f"Error adding message: {e}")
         return -1
+
+
+def get_message_by_id(message_id):
+    conn = get_db_connection()
+    try:
+        message = conn.execute(
+            '''
+            SELECT messages.*, users.avatar_url AS avatar_url, users.is_admin AS is_admin
+            FROM messages
+            LEFT JOIN users ON users.username = messages.username
+            WHERE messages.id = ?
+            ''',
+            (message_id,)
+        ).fetchone()
+        return message
+    finally:
+        close_db_connection(conn)
+
+
+def update_message(message_id, new_message):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                'UPDATE messages SET message = ?, edited_at = ? WHERE id = ?',
+                (new_message, datetime.datetime.utcnow(), message_id)
+            )
+        return True
+    except Exception as e:
+        print(f"Error updating message: {e}")
+        return False
+    finally:
+        close_db_connection(conn)
+
+
+def delete_message(message_id):
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute('DELETE FROM messages WHERE id = ?', (message_id,))
+        return True
+    except Exception as e:
+        print(f"Error deleting message: {e}")
+        return False
+    finally:
+        close_db_connection(conn)

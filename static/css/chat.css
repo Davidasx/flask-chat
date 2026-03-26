@@ -107,6 +107,19 @@
     margin: 0;
 }
 
+.admin-username {
+    color: #7c3aed;
+}
+
+.edited-tag {
+    font-size: 11px;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 999px;
+}
+
 .other-row .message-meta .username {
     margin-right: 6px;
 }
@@ -135,6 +148,28 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     text-align: left;
+}
+
+.message-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.message-action-btn {
+    border: 1px solid #dbe5ef;
+    border-radius: 8px;
+    padding: 3px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #334155;
+    background: #f8fbff;
+}
+
+.message-action-btn.danger {
+    color: #b91c1c;
+    background: #fff1f2;
+    border-color: #fecaca;
 }
 
 /* 输入区域 */
