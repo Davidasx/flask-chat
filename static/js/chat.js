@@ -3,6 +3,7 @@ const socket = io();
 let lastMessageId = 0;
 let lastDividerTimeMs = null;
 let activeMessageMenu = null;
+let activeMessageMenuRow = null;
 let isSocketConnected = false;
 const TIME_DIVIDER_THRESHOLD_MS = 5 * 60 * 1000;
 
@@ -152,9 +153,7 @@ async function hydratePrivateConversations() {
             });
 
         renderConversationList();
-    } catch (error) {
-        // 忽略初始化会话列表失败，避免阻断聊天主流程
-    }
+    } catch (error) {}
 }
 
 function renderConversationList() {
@@ -339,6 +338,10 @@ function closeActiveMessageMenu() {
         activeMessageMenu.classList.remove("open");
         activeMessageMenu = null;
     }
+    if (activeMessageMenuRow) {
+        activeMessageMenuRow.classList.remove("menu-open");
+        activeMessageMenuRow = null;
+    }
 }
 
 function clearVisibleMessageActions(exceptRow = null) {
@@ -360,6 +363,15 @@ function clearVisibleMessageMeta(exceptRow = null) {
 function openMessageMenu(menuElement) {
     if (activeMessageMenu && activeMessageMenu !== menuElement) {
         activeMessageMenu.classList.remove("open");
+        if (activeMessageMenuRow) {
+            activeMessageMenuRow.classList.remove("menu-open");
+        }
+    }
+
+    const rowElement = menuElement.closest(".message-row");
+    if (rowElement) {
+        rowElement.classList.add("menu-open");
+        activeMessageMenuRow = rowElement;
     }
 
     menuElement.classList.add("open");
@@ -1073,11 +1085,7 @@ window.addEventListener("resize", () => {
 });
 
 if (messagesContainer) {
-    messagesContainer.addEventListener("scroll", () => {
-        if (activeMessageMenu && activeMessageMenu.classList.contains("open")) {
-            adjustMessageMenuDirection(activeMessageMenu);
-        }
-    });
+    messagesContainer.addEventListener("scroll", () => {});
 }
 
 /* --- MISCS FOR MESSAGE DISPLAY --- */

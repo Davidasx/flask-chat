@@ -29,7 +29,6 @@ async function handleChangePassword(event) {
             );
             window.location.href = data.redirect;
         } else {
-            // 显示错误信息
             showError(data.error);
         }
     } catch (error) {

@@ -259,10 +259,22 @@
 /* 消息样式（微信/QQ风格） */
 .message-row {
     display: flex;
+    position: relative;
+    z-index: 1;
     align-items: flex-start;
     gap: 10px;
     margin-bottom: 16px;
     animation: fadeIn 0.24s ease;
+}
+
+.message-row:hover,
+.message-row.actions-visible,
+.message-row.meta-visible {
+    z-index: 24;
+}
+
+.message-row.menu-open {
+    z-index: 48;
 }
 
 .own-row {
@@ -380,6 +392,7 @@
     top: 50%;
     right: -36px;
     transform: translateY(-50%);
+    z-index: 28;
 }
 
 .own-row .message-actions-menu {
@@ -448,7 +461,7 @@
     box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
     padding: 4px;
     display: none;
-    z-index: 5;
+    z-index: 32;
 }
 
 .own-row .message-menu-dropdown {

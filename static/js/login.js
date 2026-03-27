@@ -24,7 +24,6 @@ async function handleLogin(event) {
             setFlashMessage(data.message || "登录成功", "success");
             window.location.href = data.redirect;
         } else {
-            // 显示错误信息
             showError(data.error);
         }
     } catch (error) {
