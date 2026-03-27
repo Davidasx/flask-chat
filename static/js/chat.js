@@ -36,6 +36,11 @@ const onlineUsers = new Set();
 let desktopSidebarCollapsed = false;
 let mobileSidebarVisible = false;
 let isMobileMode = false;
+let scheduledScrollRafId = null;
+let scheduledScrollTimeoutId = null;
+let stickyScrollIntervalId = null;
+let isHydratingConversation = false;
+const MESSAGE_SYNC_FALLBACK_LIMIT = 50;
 
 function detectMobileMode() {
     return window.matchMedia("(max-width: 900px)").matches;
@@ -218,6 +223,29 @@ function clearMessagesView() {
     closeActiveMessageMenu();
 }
 
+function stopStickyBottomMode() {
+    if (stickyScrollIntervalId !== null) {
+        clearInterval(stickyScrollIntervalId);
+        stickyScrollIntervalId = null;
+    }
+}
+
+function startStickyBottomMode(durationMs = 0) {
+    stopStickyBottomMode();
+    if (durationMs <= 0) {
+        return;
+    }
+
+    const startedAt = Date.now();
+    stickyScrollIntervalId = setInterval(() => {
+        if (Date.now() - startedAt >= durationMs) {
+            stopStickyBottomMode();
+            return;
+        }
+        scrollToBottom();
+    }, 120);
+}
+
 function switchConversation(nextKey, options = {}) {
     const keepSidebarOnMobile = Boolean(options.keepSidebarOnMobile);
     if (!conversations.has(nextKey)) {
@@ -225,6 +253,7 @@ function switchConversation(nextKey, options = {}) {
     }
 
     activeConversationKey = nextKey;
+    isHydratingConversation = true;
     const activeConversation = conversations.get(activeConversationKey);
     activeConversation.hasUnread = false;
 
@@ -612,6 +641,31 @@ function scrollToBottom() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
+function scheduleScrollToBottom(options = {}) {
+    const keepPinnedMs = Number(options.keepPinnedMs || 0);
+
+    if (scheduledScrollRafId !== null) {
+        cancelAnimationFrame(scheduledScrollRafId);
+    }
+    if (scheduledScrollTimeoutId !== null) {
+        clearTimeout(scheduledScrollTimeoutId);
+        scheduledScrollTimeoutId = null;
+    }
+
+    scheduledScrollRafId = requestAnimationFrame(() => {
+        scheduledScrollRafId = null;
+        scrollToBottom();
+        scheduledScrollTimeoutId = setTimeout(() => {
+            scheduledScrollTimeoutId = null;
+            scrollToBottom();
+        }, 70);
+    });
+
+    if (keepPinnedMs > 0) {
+        startStickyBottomMode(keepPinnedMs);
+    }
+}
+
 socket.on("message", function (data) {
     const incomingConversation = normalizeIncomingConversation(data);
     if (!incomingConversation) {
@@ -690,7 +744,33 @@ socket.on("message", function (data) {
         lastMessageId = data.id;
     }
 
-    scrollToBottom();
+    if (!isHydratingConversation) {
+        scheduleScrollToBottom();
+    }
+});
+
+socket.on("messages_sync_complete", (payload) => {
+    const incomingConversation = normalizeIncomingConversation(payload || {});
+    if (!incomingConversation) {
+        return;
+    }
+
+    if (incomingConversation.key !== activeConversationKey) {
+        return;
+    }
+
+    const count = Number(payload?.count || 0);
+    const limit = Number(payload?.limit || MESSAGE_SYNC_FALLBACK_LIMIT);
+
+    if (count >= limit && limit > 0) {
+        requestMessages();
+        return;
+    }
+
+    if (isHydratingConversation) {
+        isHydratingConversation = false;
+        scheduleScrollToBottom({ keepPinnedMs: 320 });
+    }
 });
 
 function createMessageElement({
@@ -762,7 +842,7 @@ function createMessageElement({
         imageElement.alt = safeText(data.file_name || "图片消息");
         imageElement.loading = "lazy";
         imageElement.addEventListener("load", () => {
-            scrollToBottom();
+            scheduleScrollToBottom();
         });
 
         imageLink.appendChild(imageElement);

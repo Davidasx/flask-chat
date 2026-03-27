@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.2'
+APP_VERSION = '1.3.3'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -1044,15 +1044,27 @@ def handle_check_messages(data):
     if not conversation_type:
         return
 
+    page_limit = 50
     messages = database.get_messages_for_conversation(
         username,
         conversation_type=conversation_type,
         peer_username=peer_username,
-        last_id=last_id
+        last_id=last_id,
+        limit=page_limit,
     )
     # 发送新消息给客户端
     for message in messages:
         emit('message', _build_message_payload(message, viewer_username=username))
+
+    emit(
+        'messages_sync_complete',
+        {
+            'count': len(messages),
+            'limit': page_limit,
+            'conversation_type': conversation_type,
+            'conversation_peer': peer_username or '',
+        },
+    )
 
 # 使用服务器配置
 if __name__ == '__main__':
