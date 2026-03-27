@@ -16,21 +16,147 @@
     </head>
 
     <body class="chat-page">
-        {% include 'bar.html' %}
+        <div class="chat-layout">
+            <aside class="chat-sidebar">
+                <div class="sidebar-top-row">
+                    <div class="sidebar-site">
+                        <h1><a href="/">{{ site_name }}</a></h1>
+                        <span class="app-version">v{{ app_version }}</span>
+                    </div>
+                </div>
+
+                <div class="sidebar-section-header">
+                    <div class="sidebar-section-title">对话</div>
+                    <button
+                        id="new-private-chat"
+                        class="new-private-chat"
+                        type="button"
+                        aria-label="新建私聊"
+                        title="新建私聊"
+                    >
+                        +
+                    </button>
+                </div>
+                <div id="conversation-list" class="conversation-list"></div>
+
+                <div class="sidebar-user">
+                    <div class="dropdown" id="user-dropdown">
+                        <button
+                            class="dropbtn"
+                            id="user-dropdown-btn"
+                            type="button"
+                            aria-expanded="false"
+                            aria-haspopup="true"
+                        >
+                            <span class="online-indicator"></span>
+                            <img
+                                class="top-user-avatar"
+                                src="{{ current_user_avatar }}?v={{ static_version }}"
+                                alt="用户头像"
+                            />
+                            <span>{{ user_name }}</span>
+                            <span class="dropdown-arrow">▲</span>
+                        </button>
+                        <div class="dropdown-content" role="menu">
+                            <a href="/avatar-settings">头像设置</a>
+                            <a href="/security/sessions">账号安全</a>
+                            <a href="/change-password">修改密码</a>
+                            <a href="/logout">退出登录</a>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="chat-main">
+                <div class="chat-header">
+                    <h2 id="conversation-title">聊天室</h2>
+                </div>
+                <div class="chat-container">
+                    <div id="messages"></div>
+                    <div class="input-area">
+                        <div class="input-tools">
+                            <button
+                                id="attach-button"
+                                class="attach-button"
+                                type="button"
+                                aria-label="上传附件"
+                                title="上传附件"
+                            >
+                                +
+                            </button>
+                            <div id="attach-menu" class="attach-menu" hidden>
+                                <button
+                                    id="upload-image-action"
+                                    type="button"
+                                    class="attach-menu-item"
+                                >
+                                    上传图片
+                                </button>
+                                <button
+                                    id="upload-file-action"
+                                    type="button"
+                                    class="attach-menu-item"
+                                >
+                                    上传文件
+                                </button>
+                            </div>
+                            <input
+                                type="file"
+                                id="image-file-input"
+                                accept="image/*"
+                                hidden
+                            />
+                            <input type="file" id="generic-file-input" hidden />
+                        </div>
+                        <input
+                            type="text"
+                            id="message-input"
+                            placeholder="输入消息..."
+                        />
+                        <button id="send-button">发送</button>
+                    </div>
+                </div>
+            </main>
+
+            <button
+                id="sidebar-toggle-button"
+                class="sidebar-toggle-button"
+                type="button"
+                aria-label="折叠侧栏"
+                title="折叠侧栏"
+                data-state="expanded"
+            >
+                <span class="toggle-icon-arrow" aria-hidden="true">‹</span>
+                <span class="toggle-icon-bars" aria-hidden="true">≡</span>
+            </button>
+        </div>
         <div
             id="error-message"
             class="error-message"
             style="display: none"
         ></div>
-        <div class="chat-container">
-            <div id="messages"></div>
-            <div class="input-area">
-                <input
-                    type="text"
-                    id="message-input"
-                    placeholder="输入消息..."
-                />
-                <button id="send-button">发送</button>
+
+        <div
+            id="private-chat-modal"
+            class="modal-backdrop"
+            hidden
+            aria-hidden="true"
+        >
+            <div
+                class="private-chat-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="private-chat-modal-title"
+            >
+                <h3 id="private-chat-modal-title">新建私聊</h3>
+                <p class="private-chat-modal-hint">选择一个用户开始私聊。</p>
+                <select id="private-chat-user-select"></select>
+                <div class="private-chat-modal-actions">
+                    <button type="button" id="private-chat-cancel">取消</button>
+                    <button type="button" id="private-chat-confirm">
+                        开始
+                    </button>
+                </div>
             </div>
         </div>
         <script>
@@ -41,9 +167,11 @@
                 "{{ user_avatar or '' }}?v={{ static_version }}";
             const defaultAvatarUrl =
                 "{{ default_avatar_path }}?v={{ static_version }}";
+            const availableUsers = {{ all_usernames | tojson }};
         </script>
         <!-- 确保在主代码之前加载 Socket.IO -->
         <script src="{{ url_for('static', filename='js/utils.js', v=static_version) }}"></script>
+        <script src="{{ url_for('static', filename='js/bar.js', v=static_version) }}"></script>
         <script src="{{ url_for('static', filename='js/chat.js', v=static_version) }}"></script>
     </body>
 </html>

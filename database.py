@@ -28,6 +28,13 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
                 message TEXT NOT NULL,
+                conversation_type TEXT NOT NULL DEFAULT 'public',
+                peer_username TEXT DEFAULT NULL,
+                message_type TEXT NOT NULL DEFAULT 'text',
+                file_url TEXT DEFAULT NULL,
+                file_name TEXT DEFAULT NULL,
+                file_size INTEGER DEFAULT NULL,
+                file_mime TEXT DEFAULT NULL,
                 timestamp DATETIME,
                 edited_at DATETIME DEFAULT NULL
             )
@@ -58,6 +65,20 @@ def init_db():
         message_column_names = {column['name'] for column in message_columns}
         if 'edited_at' not in message_column_names:
             conn.execute('ALTER TABLE messages ADD COLUMN edited_at DATETIME DEFAULT NULL')
+        if 'conversation_type' not in message_column_names:
+            conn.execute("ALTER TABLE messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'public'")
+        if 'peer_username' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN peer_username TEXT DEFAULT NULL')
+        if 'message_type' not in message_column_names:
+            conn.execute("ALTER TABLE messages ADD COLUMN message_type TEXT NOT NULL DEFAULT 'text'")
+        if 'file_url' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN file_url TEXT DEFAULT NULL')
+        if 'file_name' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN file_name TEXT DEFAULT NULL')
+        if 'file_size' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN file_size INTEGER DEFAULT NULL')
+        if 'file_mime' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN file_mime TEXT DEFAULT NULL')
 
         # 创建会话表
         conn.execute('''
@@ -306,6 +327,23 @@ def get_user(username):
     return user
 
 
+def get_all_usernames(exclude_username=None):
+    conn = get_db_connection()
+    try:
+        if exclude_username:
+            users = conn.execute(
+                'SELECT username FROM users WHERE username != ? ORDER BY username COLLATE NOCASE ASC',
+                (exclude_username,)
+            ).fetchall()
+        else:
+            users = conn.execute(
+                'SELECT username FROM users ORDER BY username COLLATE NOCASE ASC'
+            ).fetchall()
+        return [item['username'] for item in users]
+    finally:
+        close_db_connection(conn)
+
+
 def is_admin(username):
     conn = get_db_connection()
     user = conn.execute(
@@ -445,7 +483,7 @@ def get_messages(last_id=0, limit=50, timezone_offset=0):
             SELECT messages.*, users.avatar_url AS avatar_url, users.is_admin AS is_admin
             FROM messages
             LEFT JOIN users ON users.username = messages.username
-            WHERE messages.id > ?
+            WHERE messages.id > ? AND messages.conversation_type = 'public'
             ORDER BY messages.timestamp ASC
             LIMIT ?
             ''',
@@ -456,19 +494,91 @@ def get_messages(last_id=0, limit=50, timezone_offset=0):
     except Exception as e:
         return []
 
-def add_message(username, message):
+def add_message(
+    username,
+    message,
+    conversation_type='public',
+    peer_username=None,
+    message_type='text',
+    file_url=None,
+    file_name=None,
+    file_size=None,
+    file_mime=None,
+):
     try:
         conn = get_db_connection()
         with conn:
             cursor = conn.execute(
-                'INSERT INTO messages (username, message, timestamp) VALUES (?, ?, ?)', 
-                (username, message, datetime.datetime.utcnow())
+                '''
+                INSERT INTO messages (
+                    username,
+                    message,
+                    conversation_type,
+                    peer_username,
+                    message_type,
+                    file_url,
+                    file_name,
+                    file_size,
+                    file_mime,
+                    timestamp
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    username,
+                    message,
+                    conversation_type,
+                    peer_username,
+                    message_type,
+                    file_url,
+                    file_name,
+                    file_size,
+                    file_mime,
+                    datetime.datetime.utcnow(),
+                )
             )
+            message_id = cursor.lastrowid
         close_db_connection(conn)
-        return datetime.datetime.utcnow()
+        return message_id
     except Exception as e:
         print(f"Error adding message: {e}")
-        return -1
+        return None
+
+
+def get_messages_for_conversation(username, conversation_type='public', peer_username=None, last_id=0, limit=50):
+    conn = get_db_connection()
+    try:
+        if conversation_type == 'private' and peer_username:
+            messages = conn.execute(
+                '''
+                SELECT messages.*, users.avatar_url AS avatar_url, users.is_admin AS is_admin
+                FROM messages
+                LEFT JOIN users ON users.username = messages.username
+                WHERE messages.id > ?
+                  AND messages.conversation_type = 'private'
+                  AND ((messages.username = ? AND messages.peer_username = ?)
+                       OR (messages.username = ? AND messages.peer_username = ?))
+                ORDER BY messages.timestamp ASC
+                LIMIT ?
+                ''',
+                (last_id, username, peer_username, peer_username, username, limit)
+            ).fetchall()
+        else:
+            messages = conn.execute(
+                '''
+                SELECT messages.*, users.avatar_url AS avatar_url, users.is_admin AS is_admin
+                FROM messages
+                LEFT JOIN users ON users.username = messages.username
+                WHERE messages.id > ?
+                  AND messages.conversation_type = 'public'
+                ORDER BY messages.timestamp ASC
+                LIMIT ?
+                ''',
+                (last_id, limit)
+            ).fetchall()
+        return messages
+    finally:
+        close_db_connection(conn)
 
 
 def get_message_by_id(message_id):

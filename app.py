@@ -2,11 +2,12 @@ from flask import jsonify, Flask, render_template, request, redirect, url_for, s
 import jwt
 import datetime
 import database
-from flask_socketio import SocketIO, emit, disconnect
+from flask_socketio import SocketIO, emit, disconnect, join_room
 from functools import wraps
 from config import config
 from threading import Timer
 from PIL import Image, UnidentifiedImageError
+from werkzeug.utils import secure_filename
 import os
 import uuid
 
@@ -18,7 +19,7 @@ app.config['SECRET_KEY'] = config.get('secret_key')
 app.config['SITE_NAME'] = config.get('site_name')
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
 # 初始化 SocketIO
 socketio = SocketIO(app, async_mode='threading')
 
@@ -27,8 +28,16 @@ ws_connections = {}
 
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
-APP_VERSION = '1.2.2'
+CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
+APP_VERSION = '1.3'
 MAX_CHAT_MESSAGE_LENGTH = 500
+MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
+ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
+ALLOWED_FILE_EXTENSIONS = {
+    'txt', 'md', 'pdf', 'zip', 'rar', '7z', 'doc', 'docx', 'xls', 'xlsx',
+    'ppt', 'pptx', 'csv', 'json', 'py', 'js', 'ts', 'css', 'html', 'mp3',
+    'wav', 'mp4', 'mov', 'avi'
+}
 APP_STARTED_AT_UTC = datetime.datetime.utcnow()
 
 database.init_db()
@@ -63,6 +72,133 @@ def _normalize_chat_message(raw_message):
         cleaned_message = cleaned_message[:MAX_CHAT_MESSAGE_LENGTH]
 
     return cleaned_message
+
+
+def _normalize_message_type(raw_type):
+    if raw_type is None:
+        return 'text'
+    normalized = str(raw_type).strip().lower()
+    if normalized in {'image', 'file'}:
+        return normalized
+    return 'text'
+
+
+def _extract_extension(file_name):
+    if not file_name:
+        return ''
+    parts = file_name.rsplit('.', 1)
+    if len(parts) != 2:
+        return ''
+    return parts[1].strip().lower()
+
+
+def _is_chat_upload_local(file_url):
+    return bool(file_url) and str(file_url).startswith('/static/uploads/chat_files/')
+
+
+def _delete_chat_upload(file_url):
+    if not _is_chat_upload_local(file_url):
+        return
+
+    local_path = os.path.join(app.root_path, file_url.lstrip('/'))
+    if os.path.exists(local_path):
+        try:
+            os.remove(local_path)
+        except OSError:
+            pass
+
+
+def _save_chat_upload(file_storage, upload_kind):
+    if not file_storage or not file_storage.filename:
+        return None, '请选择要上传的文件'
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, '文件名无效'
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    file_size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if file_size <= 0:
+        return None, '文件为空'
+    if file_size > MAX_CHAT_UPLOAD_SIZE:
+        return None, f'文件过大，最大支持 {MAX_CHAT_UPLOAD_SIZE // (1024 * 1024)}MB'
+
+    ext = _extract_extension(original_name)
+    if upload_kind == 'image':
+        if ext not in ALLOWED_IMAGE_EXTENSIONS:
+            return None, '图片格式不支持'
+    else:
+        if ext not in ALLOWED_FILE_EXTENSIONS and ext not in ALLOWED_IMAGE_EXTENSIONS:
+            return None, '文件格式不支持'
+
+    os.makedirs(CHAT_UPLOAD_DIR, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}_{original_name}"
+    absolute_path = os.path.join(CHAT_UPLOAD_DIR, stored_name)
+
+    try:
+        file_storage.save(absolute_path)
+    except OSError:
+        return None, '文件保存失败'
+
+    return {
+        'url': f'/static/uploads/chat_files/{stored_name}',
+        'name': original_name,
+        'size': file_size,
+        'mime': (file_storage.mimetype or 'application/octet-stream').lower(),
+    }, None
+
+
+def _normalize_peer_username(raw_peer):
+    if raw_peer is None:
+        return ''
+    if not isinstance(raw_peer, str):
+        raw_peer = str(raw_peer)
+    return raw_peer.strip()
+
+
+def _resolve_conversation(payload, current_username):
+    payload = payload if isinstance(payload, dict) else {}
+    conversation_type = str(payload.get('conversationType', 'public')).strip().lower()
+    if conversation_type != 'private':
+        return 'public', None
+
+    peer_username = _normalize_peer_username(payload.get('peerUsername'))
+    if not peer_username or peer_username == current_username:
+        return None, None
+    if not database.user_exists(peer_username):
+        return None, None
+    return 'private', peer_username
+
+
+def _build_message_payload(message_row, viewer_username=None):
+    data = {
+        'username': message_row['username'],
+        'message': message_row['message'],
+        'timestamp': message_row['timestamp'],
+        'id': message_row['id'],
+        'avatar_url': _normalize_avatar_path(message_row['avatar_url']),
+        'edited_at': message_row['edited_at'],
+        'is_admin': bool(message_row['is_admin']),
+        'conversation_type': message_row['conversation_type'] or 'public',
+        'peer_username': message_row['peer_username'],
+        'message_type': message_row['message_type'] or 'text',
+        'file_url': message_row['file_url'],
+        'file_name': message_row['file_name'],
+        'file_size': message_row['file_size'],
+        'file_mime': message_row['file_mime'],
+    }
+
+    if data['conversation_type'] == 'private' and viewer_username:
+        if data['username'] == viewer_username:
+            data['conversation_peer'] = data['peer_username']
+        else:
+            data['conversation_peer'] = data['username']
+
+        # 私聊中不显示管理员标识
+        data['is_admin'] = False
+
+    return data
 
 
 def _save_avatar_image(username, file_storage):
@@ -128,9 +264,65 @@ def _build_runtime_status():
         'app_version': APP_VERSION,
         'server_time_utc': datetime.datetime.utcnow().isoformat(),
         'uptime_seconds': uptime_seconds,
-        'active_ws_connections': len(ws_connections),
+        'active_ws_connections': sum(len(sids) for sids in ws_connections.values()),
         'registered_users': database.get_user_count(),
     }
+
+
+def _collect_online_usernames():
+    usernames = set()
+    stale_tokens = []
+    for token in list(ws_connections.keys()):
+        sid_set = ws_connections.get(token) or set()
+        if not sid_set:
+            stale_tokens.append(token)
+            continue
+
+        session_item = database.get_session_by_token(token)
+        if session_item and session_item['username']:
+            usernames.add(session_item['username'])
+        else:
+            stale_tokens.append(token)
+
+    for stale_token in stale_tokens:
+        ws_connections.pop(stale_token, None)
+
+    return sorted(usernames)
+
+
+def _add_ws_connection(token, sid):
+    sid_set = ws_connections.setdefault(token, set())
+    sid_set.add(sid)
+
+
+def _remove_ws_connection_by_sid(token, sid):
+    sid_set = ws_connections.get(token)
+    if not sid_set:
+        return
+    sid_set.discard(sid)
+    if not sid_set:
+        ws_connections.pop(token, None)
+
+
+def _remove_ws_connection_by_sid_fallback(sid):
+    for token in list(ws_connections.keys()):
+        sid_set = ws_connections.get(token)
+        if not sid_set:
+            ws_connections.pop(token, None)
+            continue
+        if sid in sid_set:
+            sid_set.discard(sid)
+            if not sid_set:
+                ws_connections.pop(token, None)
+            break
+
+
+def _emit_online_presence():
+    online_usernames = _collect_online_usernames()
+    socketio.emit('online_presence', {
+        'usernames': online_usernames,
+        'count': len(online_usernames),
+    }, namespace='/')
 
 
 def admin_panel_required(f):
@@ -189,14 +381,54 @@ def home():
 @app.route('/chat')
 @login_required
 def chat():
+    current_username = session.get('username')
     return render_template(
         'chat.html',
         site_name=app.config['SITE_NAME'],
-        user_name=session.get('username'),
-        user_avatar=_normalize_avatar_path(database.get_avatar_url(session.get('username'))),
+        user_name=current_username,
+        user_avatar=_normalize_avatar_path(database.get_avatar_url(current_username)),
         default_avatar_path=DEFAULT_AVATAR_PATH,
-        user_is_admin=database.is_admin(session.get('username'))
+        user_is_admin=database.is_admin(current_username),
+        all_usernames=database.get_all_usernames(exclude_username=current_username)
     )
+
+
+@app.route('/chat/upload', methods=['POST'])
+@login_required
+def chat_upload():
+    username = session.get('username')
+    token = session.get('token')
+    if not username or not token:
+        return jsonify({'error': '未登录'}), 401
+    if not database.verify_session(username, token):
+        return jsonify({'error': '会话已失效'}), 401
+
+    upload_kind = str(request.form.get('uploadKind', 'file')).strip().lower()
+    if upload_kind not in {'image', 'file'}:
+        return jsonify({'error': '上传类型无效'}), 400
+
+    conversation_payload = {
+        'conversationType': request.form.get('conversationType'),
+        'peerUsername': request.form.get('peerUsername'),
+    }
+    conversation_type, peer_username = _resolve_conversation(conversation_payload, username)
+    if not conversation_type:
+        return jsonify({'error': '会话无效'}), 400
+
+    upload_file = request.files.get('file')
+    uploaded, error = _save_chat_upload(upload_file, upload_kind)
+    if error:
+        return jsonify({'error': error}), 400
+
+    return jsonify({
+        'messageType': 'image' if upload_kind == 'image' else 'file',
+        'fileUrl': uploaded['url'],
+        'fileName': uploaded['name'],
+        'fileSize': uploaded['size'],
+        'fileMime': uploaded['mime'],
+        'conversationType': conversation_type,
+        'peerUsername': peer_username,
+    })
 
 
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -505,7 +737,7 @@ def change_password():
 
 # 处理客户端连接
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
     """处理websocket连接"""
     token = session.get('token')
     username = session.get('username')
@@ -514,27 +746,19 @@ def handle_connect():
         return False
     
     if not database.verify_session(username, token):
-        ws_connections[token] = request.sid
+        _add_ws_connection(token, request.sid)
         Timer(2.0, close_ws_connection, args=[username, token]).start()
         return True
 
     database.update_session_seen(username, token)
+    join_room(f'user:{username}')
     
     # 存储连接
-    ws_connections[token] = request.sid
+    _add_ws_connection(token, request.sid)
 
-    # 获取历史消息
-    messages = database.get_messages()
-    for message in messages:
-        emit('message', {
-            'username': message['username'],
-            'message': message['message'],
-            'timestamp': message['timestamp'],
-            'id': message['id'],
-            'avatar_url': _normalize_avatar_path(message['avatar_url']),
-            'edited_at': message['edited_at'],
-            'is_admin': bool(message['is_admin'])
-        })
+    _emit_online_presence()
+
+    # 历史消息由前端按会话主动拉取，避免私聊内容广播泄漏
 
     # 发送用户上线通知
     emit('user_online', {
@@ -545,19 +769,19 @@ def handle_connect():
     return True
 
 @socketio.on('disconnect')
-def handle_disconnect():
+def handle_disconnect(reason=None):
     """处理websocket断开连接"""
     token = session.get('token')
     username = session.get('username')
 
-    if not token or not username:
-        return False
-    
-    # 移除连接
-    try:
-        del ws_connections[token]
-    except:
-        pass
+    if token:
+        _remove_ws_connection_by_sid(token, request.sid)
+    else:
+        _remove_ws_connection_by_sid_fallback(request.sid)
+
+    if not username:
+        _emit_online_presence()
+        return True
 
     # 发送用户离线通知
     emit('user_offline', {
@@ -566,35 +790,42 @@ def handle_disconnect():
         'username': username,
     }, broadcast=True)
 
+    _emit_online_presence()
+
     return True
 
 def close_ws_connection(username, token):
     """关闭指定token的websocket连接"""
     with app.app_context():
         if token in ws_connections:
-            sid = ws_connections[token]
+            sid_list = list(ws_connections.get(token) or set())
+            if not sid_list:
+                ws_connections.pop(token, None)
+                _emit_online_presence()
+                return
 
             # 发送用户离线通知
             socketio.emit('user_offline', {
                 'message': '用户会话已过期',
                 'username': username,
-            }, namespace='/', broadcast=True)
+            }, namespace='/')
 
-            # 发送强制下线通知
-            socketio.emit('force_disconnect', {
-                'message': '用户会话已过期'
-            }, namespace='/', room=sid)
-            
-            # 等待前端处理通知（0.5秒）
-            socketio.sleep(0.5)
-            
-            # 执行断开连接
-            disconnect(sid, namespace='/')
-            socketio.close_room(sid)
-            try:
-                del ws_connections[token]
-            except:
-                pass
+            for sid in sid_list:
+                # 发送强制下线通知
+                socketio.emit('force_disconnect', {
+                    'message': '用户会话已过期'
+                }, namespace='/', room=sid)
+                
+                # 等待前端处理通知（0.5秒）
+                socketio.sleep(0.5)
+                
+                # 执行断开连接
+                disconnect(sid, namespace='/')
+                socketio.close_room(sid)
+
+            ws_connections.pop(token, None)
+
+            _emit_online_presence()
 
 # 处理新消息
 @socketio.on('send_message')
@@ -613,27 +844,69 @@ def handle_message(data):
     
     username = session['username']
     payload = data if isinstance(data, dict) else {}
+    message_type = _normalize_message_type(payload.get('messageType'))
     message = _normalize_chat_message(payload.get('message'))
-    
-    if message:
-        # 保存消息到数据库
-        database.add_message(username, message)
+    conversation_type, peer_username = _resolve_conversation(payload, username)
+    if not conversation_type:
+        return
 
-        # 获取最新消息以确保时间格式一致
-        last_message = database.get_last_message()
-        if not last_message:
+    file_url = None
+    file_name = None
+    file_size = None
+    file_mime = None
+
+    if message_type == 'text':
+        if not message:
             return
-        
-        # 广播消息给所有连接的客户端
-        emit('message', {
-            'username': username,
-            'message': last_message['message'],
-            'timestamp': last_message['timestamp'],
-            'id': last_message['id'],
-            'avatar_url': _normalize_avatar_path(last_message['avatar_url']),
-            'edited_at': last_message['edited_at'],
-            'is_admin': bool(last_message['is_admin'])
-        }, broadcast=True)
+    else:
+        # 文件/图片消息不允许携带文本内容
+        message = ''
+        file_url = str(payload.get('fileUrl', '')).strip()
+        file_name = str(payload.get('fileName', '')).strip()
+        file_mime = str(payload.get('fileMime', '')).strip().lower()
+
+        try:
+            file_size = int(payload.get('fileSize', 0))
+        except (TypeError, ValueError):
+            file_size = 0
+
+        if not _is_chat_upload_local(file_url):
+            return
+        if not file_name or file_size <= 0:
+            return
+
+        stored_path = os.path.join(app.root_path, file_url.lstrip('/'))
+        if not os.path.exists(stored_path):
+            return
+    
+    # 保存消息到数据库
+    message_id = database.add_message(
+        username,
+        message,
+        conversation_type=conversation_type,
+        peer_username=peer_username,
+        message_type=message_type,
+        file_url=file_url,
+        file_name=file_name,
+        file_size=file_size,
+        file_mime=file_mime,
+    )
+    if not message_id:
+        return
+
+    # 获取刚写入的消息，避免并发下串消息
+    saved_message = database.get_message_by_id(message_id)
+    if not saved_message:
+        return
+    
+    # 广播消息给所有连接的客户端
+    if saved_message['conversation_type'] == 'private':
+        emit('message', _build_message_payload(saved_message, viewer_username=username), room=f'user:{username}')
+        target_username = saved_message['peer_username']
+        if target_username:
+            emit('message', _build_message_payload(saved_message, viewer_username=target_username), room=f'user:{target_username}')
+    else:
+        emit('message', _build_message_payload(saved_message), broadcast=True)
 
 
 @socketio.on('edit_message')
@@ -659,11 +932,16 @@ def handle_edit_message(data):
     original_message = database.get_message_by_id(message_id)
     if not original_message:
         return
+    if (original_message['message_type'] or 'text') != 'text':
+        return
 
     current_user_is_admin = database.is_admin(username)
     original_author_is_admin = bool(original_message['is_admin'])
     is_owner = original_message['username'] == username
-    can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
+    if original_message['conversation_type'] == 'private':
+        can_manage = is_owner
+    else:
+        can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
     if not can_manage:
         return
 
@@ -674,11 +952,18 @@ def handle_edit_message(data):
     if not updated_message:
         return
 
-    emit('message_updated', {
+    updated_payload = {
         'id': updated_message['id'],
         'message': updated_message['message'],
         'edited_at': updated_message['edited_at'],
-    }, broadcast=True)
+    }
+
+    if updated_message['conversation_type'] == 'private':
+        emit('message_updated', updated_payload, room=f"user:{updated_message['username']}")
+        if updated_message['peer_username']:
+            emit('message_updated', updated_payload, room=f"user:{updated_message['peer_username']}")
+    else:
+        emit('message_updated', updated_payload, broadcast=True)
 
 
 @socketio.on('delete_message')
@@ -707,16 +992,27 @@ def handle_delete_message(data):
     current_user_is_admin = database.is_admin(username)
     original_author_is_admin = bool(original_message['is_admin'])
     is_owner = original_message['username'] == username
-    can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
+    if original_message['conversation_type'] == 'private':
+        can_manage = is_owner
+    else:
+        can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
     if not can_manage:
         return
 
     if not database.delete_message(message_id):
         return
 
-    emit('message_deleted', {
+    _delete_chat_upload(original_message['file_url'])
+
+    deleted_payload = {
         'id': message_id,
-    }, broadcast=True)
+    }
+    if original_message['conversation_type'] == 'private':
+        emit('message_deleted', deleted_payload, room=f"user:{original_message['username']}")
+        if original_message['peer_username']:
+            emit('message_deleted', deleted_payload, room=f"user:{original_message['peer_username']}")
+    else:
+        emit('message_deleted', deleted_payload, broadcast=True)
 
 @socketio.on('check_messages')
 def handle_check_messages(data):
@@ -726,18 +1022,26 @@ def handle_check_messages(data):
         last_id = int(last_id)
     except (TypeError, ValueError):
         last_id = 0
-    messages = database.get_messages(last_id=last_id)
+    username = session.get('username')
+    token = session.get('token')
+    if not username or not token:
+        return
+    if not database.verify_session(username, token):
+        return
+
+    conversation_type, peer_username = _resolve_conversation(data, username)
+    if not conversation_type:
+        return
+
+    messages = database.get_messages_for_conversation(
+        username,
+        conversation_type=conversation_type,
+        peer_username=peer_username,
+        last_id=last_id
+    )
     # 发送新消息给客户端
     for message in messages:
-        emit('message', {
-            'id': message['id'],
-            'username': message['username'],
-            'message': message['message'],
-            'timestamp': message['timestamp'],
-            'avatar_url': _normalize_avatar_path(message['avatar_url']),
-            'edited_at': message['edited_at'],
-            'is_admin': bool(message['is_admin'])
-        })
+        emit('message', _build_message_payload(message, viewer_username=username))
 
 # 使用服务器配置
 if __name__ == '__main__':
