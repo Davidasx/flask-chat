@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3'
+APP_VERSION = '1.3.1'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -429,6 +429,17 @@ def chat_upload():
         'conversationType': conversation_type,
         'peerUsername': peer_username,
     })
+
+
+@app.route('/chat/private-conversations', methods=['GET'])
+@login_required
+def chat_private_conversations():
+    username = session.get('username')
+    if not username:
+        return jsonify({'error': '未登录'}), 401
+
+    peers = database.get_private_conversation_peers(username)
+    return jsonify({'peers': peers})
 
 
 @app.route('/admin/login', methods=['GET', 'POST'])

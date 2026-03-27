@@ -581,6 +581,37 @@ def get_messages_for_conversation(username, conversation_type='public', peer_use
         close_db_connection(conn)
 
 
+def get_private_conversation_peers(username):
+        conn = get_db_connection()
+        try:
+                rows = conn.execute(
+                        '''
+                        SELECT peer FROM (
+                                SELECT peer_username AS peer
+                                FROM messages
+                                WHERE conversation_type = 'private'
+                                    AND username = ?
+                                    AND peer_username IS NOT NULL
+
+                                UNION
+
+                                SELECT username AS peer
+                                FROM messages
+                                WHERE conversation_type = 'private'
+                                    AND peer_username = ?
+                        )
+                        WHERE peer IS NOT NULL
+                            AND peer != ''
+                            AND peer != ?
+                        ORDER BY peer COLLATE NOCASE ASC
+                        ''',
+                        (username, username, username),
+                ).fetchall()
+                return [item['peer'] for item in rows]
+        finally:
+                close_db_connection(conn)
+
+
 def get_message_by_id(message_id):
     conn = get_db_connection()
     try:

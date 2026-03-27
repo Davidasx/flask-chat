@@ -129,13 +129,32 @@ function buildConversationList() {
     conversations.clear();
     ensureConversation("public", "");
 
-    (availableUsers || []).forEach((name) => {
-        if (name && name !== username) {
-            ensureConversation("private", name);
-        }
-    });
-
     renderConversationList();
+}
+
+async function hydratePrivateConversations() {
+    try {
+        const response = await fetch("/chat/private-conversations", {
+            method: "GET",
+            credentials: "same-origin",
+        });
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = await response.json();
+        const peers = Array.isArray(payload?.peers) ? payload.peers : [];
+        peers
+            .map((name) => safeText(name).trim())
+            .filter((name) => name && name !== username)
+            .forEach((name) => {
+                ensureConversation("private", name);
+            });
+
+        renderConversationList();
+    } catch (error) {
+        // 忽略初始化会话列表失败，避免阻断聊天主流程
+    }
 }
 
 function renderConversationList() {
@@ -1017,15 +1036,16 @@ setInterval(() => {
     requestMessages();
 }, 5000);
 
-window.onload = function () {
+window.onload = async function () {
     isMobileMode = detectMobileMode();
     mobileSidebarVisible = isMobileMode;
     applySidebarLayoutState();
 
     buildConversationList();
+    await hydratePrivateConversations();
     closePrivateChatModal();
     switchConversation("public", { keepSidebarOnMobile: true });
-    updateOnlineStatus("disconnected");
+    updateOnlineStatus(socket.connected ? "connected" : "disconnected");
 };
 
 document.addEventListener("click", () => {
