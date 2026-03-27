@@ -158,6 +158,10 @@ function renderSessions(sessions) {
         uaCell.textContent = safeText(session.user_agent || "-");
         row.appendChild(uaCell);
 
+        const createdCell = document.createElement("td");
+        createdCell.textContent = formatDate(session.created_at);
+        row.appendChild(createdCell);
+
         const activeCell = document.createElement("td");
         activeCell.textContent = formatDate(session.last_seen);
         row.appendChild(activeCell);

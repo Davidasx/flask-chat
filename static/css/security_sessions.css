@@ -52,3 +52,27 @@ th {
     background: #fff1f2;
     color: #b91c1c;
 }
+
+@media (max-width: 900px) {
+    .security-container {
+        margin: calc(76px + env(safe-area-inset-top)) auto 12px;
+        width: calc(100vw - 16px);
+    }
+
+    .card {
+        padding: 10px;
+        border-radius: 12px;
+        overflow-x: auto;
+    }
+
+    table {
+        min-width: 700px;
+    }
+
+    th,
+    td {
+        padding: 8px 6px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+}

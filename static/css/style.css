@@ -82,3 +82,17 @@ body.chat-page {
         opacity: 1;
     }
 }
+
+@media (max-width: 768px) {
+    .error-message {
+        top: 10px;
+        width: calc(100vw - 20px);
+        max-width: 520px;
+        padding: 10px 12px;
+    }
+
+    body,
+    html {
+        min-height: 100%;
+    }
+}

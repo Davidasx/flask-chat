@@ -77,3 +77,33 @@ th {
     color: #2563eb;
     font-weight: 700;
 }
+
+@media (max-width: 900px) {
+    .admin-container {
+        margin: 12px auto;
+        width: calc(100vw - 16px);
+        gap: 10px;
+    }
+
+    .card {
+        padding: 10px;
+        border-radius: 12px;
+        overflow-x: auto;
+    }
+
+    .grid-status {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 8px;
+    }
+
+    table {
+        min-width: 760px;
+    }
+
+    th,
+    td {
+        padding: 8px 6px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+}

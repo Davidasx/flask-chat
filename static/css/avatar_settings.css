@@ -1,5 +1,6 @@
 .avatar-container {
     max-width: 560px;
+    margin-top: 90px;
 }
 
 .avatar-current {
@@ -51,4 +52,19 @@
 .secondary-btn:hover {
     background: #e7eef6 !important;
     border-color: #c8d6e5 !important;
+}
+
+@media (max-width: 768px) {
+    .avatar-container {
+        margin-top: calc(74px + env(safe-area-inset-top));
+    }
+
+    .avatar-current {
+        margin-bottom: 14px;
+    }
+
+    #current-avatar {
+        width: 84px;
+        height: 84px;
+    }
 }

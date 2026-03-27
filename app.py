@@ -27,7 +27,7 @@ ws_connections = {}
 
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
-APP_VERSION = '1.2.1'
+APP_VERSION = '1.2.2'
 MAX_CHAT_MESSAGE_LENGTH = 500
 APP_STARTED_AT_UTC = datetime.datetime.utcnow()
 

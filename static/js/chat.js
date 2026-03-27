@@ -48,6 +48,10 @@ const messagesContainer = document.getElementById("messages");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 
+function isCoarsePointerDevice() {
+    return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+}
+
 function isMessageManageable(data) {
     const isOwn = data.username === username;
     const fromAdmin = Boolean(data.is_admin);
@@ -59,6 +63,22 @@ function closeActiveMessageMenu() {
         activeMessageMenu.classList.remove("open");
         activeMessageMenu = null;
     }
+}
+
+function clearVisibleMessageActions(exceptRow = null) {
+    document.querySelectorAll(".message-row.actions-visible").forEach((row) => {
+        if (row !== exceptRow) {
+            row.classList.remove("actions-visible");
+        }
+    });
+}
+
+function clearVisibleMessageMeta(exceptRow = null) {
+    document.querySelectorAll(".message-row.meta-visible").forEach((row) => {
+        if (row !== exceptRow) {
+            row.classList.remove("meta-visible");
+        }
+    });
 }
 
 function openMessageMenu(menuElement) {
@@ -77,6 +97,55 @@ function toggleMessageMenu(menuElement) {
     }
 
     openMessageMenu(menuElement);
+}
+
+function toggleMobileMessageActions(rowElement) {
+    if (!isCoarsePointerDevice()) {
+        return;
+    }
+
+    if (rowElement.classList.contains("actions-visible")) {
+        rowElement.classList.remove("actions-visible");
+        closeActiveMessageMenu();
+        return;
+    }
+
+    clearVisibleMessageActions(rowElement);
+    rowElement.classList.add("actions-visible");
+}
+
+function toggleMobileMessageMeta(rowElement) {
+    if (!isCoarsePointerDevice()) {
+        return;
+    }
+
+    if (rowElement.classList.contains("meta-visible")) {
+        rowElement.classList.remove("meta-visible");
+        return;
+    }
+
+    clearVisibleMessageMeta(rowElement);
+    rowElement.classList.add("meta-visible");
+}
+
+function ensureEditedTag(metaElement, rowElement) {
+    if (!metaElement || metaElement.querySelector(".edited-tag")) {
+        return;
+    }
+
+    const editedTag = document.createElement("span");
+    editedTag.className = "edited-tag";
+    editedTag.textContent = "已编辑";
+
+    const usernameElement = metaElement.querySelector(".username");
+    const isOwnRow = Boolean(rowElement?.classList.contains("own-row"));
+
+    if (isOwnRow && usernameElement) {
+        metaElement.insertBefore(editedTag, usernameElement);
+        return;
+    }
+
+    metaElement.appendChild(editedTag);
 }
 
 function requestEditMessage(messageId, rowElement) {
@@ -221,14 +290,21 @@ function createMessageElement({
     }
 
     if (data.edited_at) {
-        const editedTag = document.createElement("span");
-        editedTag.className = "edited-tag";
-        editedTag.textContent = "已编辑";
-        metaElement.appendChild(editedTag);
+        ensureEditedTag(metaElement, rowElement);
     }
 
     const bubbleElement = document.createElement("div");
     bubbleElement.className = "message-bubble";
+
+    if (isCoarsePointerDevice()) {
+        bubbleElement.addEventListener("click", (event) => {
+            if (event.target.closest(".message-actions-menu")) {
+                return;
+            }
+            event.stopPropagation();
+            toggleMobileMessageMeta(rowElement);
+        });
+    }
 
     const contentElement = document.createElement("p");
     contentElement.className = "content";
@@ -270,6 +346,10 @@ function createMessageElement({
 
         triggerButton.addEventListener("click", (event) => {
             event.stopPropagation();
+            clearVisibleMessageActions(rowElement);
+            clearVisibleMessageMeta(rowElement);
+            rowElement.classList.add("actions-visible");
+            rowElement.classList.add("meta-visible");
             toggleMessageMenu(menuElement);
         });
 
@@ -282,6 +362,16 @@ function createMessageElement({
         menuElement.addEventListener("click", (event) => {
             event.stopPropagation();
         });
+
+        if (isCoarsePointerDevice()) {
+            bubbleElement.addEventListener("click", (event) => {
+                if (event.target.closest(".message-actions-menu")) {
+                    return;
+                }
+                event.stopPropagation();
+                toggleMobileMessageActions(rowElement);
+            });
+        }
 
         menuElement.append(editButton, deleteButton);
         menuWrapper.append(triggerButton, menuElement);
@@ -321,11 +411,8 @@ socket.on("message_updated", function (data) {
     }
 
     const metaElement = rowElement.querySelector(".message-meta");
-    if (metaElement && !metaElement.querySelector(".edited-tag")) {
-        const editedTag = document.createElement("span");
-        editedTag.className = "edited-tag";
-        editedTag.textContent = "已编辑";
-        metaElement.appendChild(editedTag);
+    if (metaElement) {
+        ensureEditedTag(metaElement, rowElement);
     }
 });
 
@@ -362,6 +449,8 @@ window.onload = function () {
 
 document.addEventListener("click", () => {
     closeActiveMessageMenu();
+    clearVisibleMessageActions();
+    clearVisibleMessageMeta();
 });
 
 document.addEventListener("keydown", (event) => {

@@ -254,19 +254,55 @@
 
 @media (hover: none) and (pointer: coarse) {
     .message-actions-menu {
-        right: -34px;
+        top: 50%;
+        right: -30px;
+        transform: translateY(-50%);
     }
 
     .own-row .message-actions-menu {
-        left: -34px;
+        right: auto;
+        left: -30px;
     }
 
     .message-menu-trigger {
-        opacity: 0.9;
-        pointer-events: auto;
-        width: 28px;
-        height: 28px;
+        opacity: 0;
+        pointer-events: none;
+        width: 30px;
+        height: 30px;
         color: rgba(66, 84, 102, 0.86);
+    }
+
+    .message-row.actions-visible .message-menu-trigger,
+    .message-row .message-menu-dropdown.open + .message-menu-trigger,
+    .message-row .message-menu-dropdown.open,
+    .message-row.actions-visible .message-menu-dropdown.open {
+        opacity: 1;
+    }
+
+    .message-row.actions-visible .message-menu-trigger,
+    .message-row .message-menu-dropdown.open + .message-menu-trigger {
+        pointer-events: auto;
+    }
+
+    .timestamp,
+    .edited-tag {
+        display: none;
+    }
+
+    .message-row.meta-visible .timestamp,
+    .message-row.meta-visible .edited-tag {
+        display: inline-flex;
+    }
+
+    .message-menu-dropdown {
+        top: calc(100% + 4px);
+        right: 0;
+        left: auto;
+    }
+
+    .own-row .message-menu-dropdown {
+        right: auto;
+        left: 0;
     }
 }
 
@@ -339,14 +375,18 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
     .chat-container {
-        top: 68px;
-        bottom: 8px;
+        top: calc(62px + env(safe-area-inset-top));
+        bottom: max(8px, env(safe-area-inset-bottom));
         width: calc(100vw - 16px);
         border-radius: 12px;
     }
 
+    #messages {
+        padding: 14px 12px;
+    }
+
     .message-main {
-        max-width: 84%;
+        max-width: 88%;
     }
 
     .message-avatar {
@@ -356,6 +396,7 @@
 
     .input-area {
         padding: 12px;
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
     }
 
     #message-input {
@@ -364,5 +405,28 @@
 
     #send-button {
         padding: 8px 16px;
+    }
+
+    .message-actions-menu {
+        right: -28px;
+    }
+
+    .own-row .message-actions-menu {
+        left: -28px;
+    }
+}
+
+@media (max-width: 420px) {
+    .message-main {
+        max-width: 92%;
+    }
+
+    .message-avatar {
+        width: 30px;
+        height: 30px;
+    }
+
+    .message-meta {
+        gap: 6px;
     }
 }

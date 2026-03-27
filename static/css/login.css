@@ -112,3 +112,31 @@ a:hover {
     font-size: 14px;
     color: #475569;
 }
+
+@media (max-width: 768px) {
+    .container {
+        max-width: none;
+        margin: 14px 10px;
+        padding: 20px 16px;
+        border-radius: 12px;
+    }
+
+    h2 {
+        font-size: 24px;
+        margin-bottom: 18px;
+    }
+
+    h3 {
+        margin: -6px 0 16px;
+        font-size: 13px;
+    }
+
+    .form-group {
+        margin-bottom: 14px;
+    }
+
+    button[type="submit"] {
+        padding: 12px;
+        font-size: 15px;
+    }
+}

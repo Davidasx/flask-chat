@@ -170,3 +170,44 @@
     background-color: #e74c3c;
     box-shadow: 0 0 5px #e74c3c;
 }
+
+@media (max-width: 768px) {
+    .top-bar {
+        height: 56px;
+        padding: 0 10px;
+    }
+
+    .site-info h1 {
+        font-size: 1rem;
+        max-width: 40vw;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .app-version {
+        display: none;
+    }
+
+    .dropbtn {
+        padding: 6px 8px;
+        gap: 6px;
+    }
+
+    .dropbtn > span:nth-of-type(2) {
+        max-width: 18vw;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .top-user-avatar {
+        width: 24px;
+        height: 24px;
+    }
+
+    .dropdown-content {
+        min-width: 148px;
+        right: 0;
+    }
+}
