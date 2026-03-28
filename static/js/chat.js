@@ -53,6 +53,20 @@ function detectMobileMode() {
     return window.matchMedia("(max-width: 900px)").matches;
 }
 
+function setAppHeight() {
+    const viewportHeight = window.visualViewport
+        ? Math.round(window.visualViewport.height)
+        : window.innerHeight;
+    document.documentElement.style.setProperty(
+        "--app-height",
+        `${viewportHeight}px`,
+    );
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    setAppHeight();
+});
+
 function applySidebarLayoutState() {
     if (!chatLayoutElement) {
         return;
@@ -1322,6 +1336,7 @@ setInterval(() => {
 }, 5000);
 
 window.onload = async function () {
+    setAppHeight();
     isMobileMode = detectMobileMode();
     mobileSidebarVisible = isMobileMode;
     applySidebarLayoutState();
@@ -1351,11 +1366,28 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", () => {
+    setAppHeight();
     refreshViewportSidebarMode();
     if (activeMessageMenu && activeMessageMenu.classList.contains("open")) {
         adjustMessageMenuDirection(activeMessageMenu);
     }
 });
+
+if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", setAppHeight);
+    window.visualViewport.addEventListener("scroll", setAppHeight);
+}
+
+if (messageInput) {
+    messageInput.addEventListener("focus", () => {
+        setAppHeight();
+        scheduleScrollToBottom({ keepPinnedMs: 200 });
+        setTimeout(setAppHeight, 300);
+    });
+    messageInput.addEventListener("blur", () => {
+        setAppHeight();
+    });
+}
 
 if (messagesContainer) {
     messagesContainer.addEventListener("scroll", () => {});
