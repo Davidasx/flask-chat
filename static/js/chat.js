@@ -6,6 +6,8 @@ let activeMessageMenu = null;
 let activeMessageMenuRow = null;
 let isSocketConnected = false;
 const TIME_DIVIDER_THRESHOLD_MS = 5 * 60 * 1000;
+const MESSAGE_SYNC_TIMEOUT_MS = 8000;
+const MESSAGE_SYNC_MAX_RETRIES = 4;
 
 const messagesContainer = document.getElementById("messages");
 const messageInput = document.getElementById("message-input");
@@ -41,6 +43,11 @@ let scheduledScrollTimeoutId = null;
 let stickyScrollIntervalId = null;
 let isHydratingConversation = false;
 const MESSAGE_SYNC_FALLBACK_LIMIT = 50;
+let syncRequestSequence = 0;
+let currentSyncRequest = null;
+let queuedMessageSync = false;
+let pendingRealtimeMessages = [];
+let syncTimeoutId = null;
 
 function detectMobileMode() {
     return window.matchMedia("(max-width: 900px)").matches;
@@ -220,6 +227,13 @@ function clearMessagesView() {
     messagesContainer.innerHTML = "";
     lastMessageId = 0;
     lastDividerTimeMs = null;
+    currentSyncRequest = null;
+    queuedMessageSync = false;
+    pendingRealtimeMessages = [];
+    if (syncTimeoutId !== null) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+    }
     closeActiveMessageMenu();
 }
 
@@ -297,7 +311,7 @@ function getActiveConversation() {
     );
 }
 
-function isMessageManageable(data) {
+function canDeleteMessage(data) {
     const activeConversation = getActiveConversation();
     const isOwn = data.username === username;
     const messageType = safeText(data.message_type || "text").toLowerCase();
@@ -310,6 +324,10 @@ function isMessageManageable(data) {
         return isOwn || (userIsAdmin && !fromAdmin);
     }
     return isOwn || (userIsAdmin && !fromAdmin);
+}
+
+function canEditMessage(data) {
+    return data.username === username;
 }
 
 function updateOnlineStatus(status) {
@@ -342,6 +360,13 @@ socket.on("connect", () => {
 
 socket.on("disconnect", () => {
     updateOnlineStatus("disconnected");
+    currentSyncRequest = null;
+    queuedMessageSync = false;
+    pendingRealtimeMessages = [];
+    if (syncTimeoutId !== null) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+    }
     onlineUsers.clear();
     updateConversationTitle();
 });
@@ -624,76 +649,86 @@ function uploadAttachment(file, uploadKind) {
         });
 }
 
-function requestMessages() {
+function requestMessages(options = {}) {
     if (!isSocketConnected) {
         return;
     }
 
+    if (currentSyncRequest) {
+        queuedMessageSync = true;
+        return;
+    }
+
     const activeConversation = getActiveConversation();
+    const overrideLastIdRaw = options?.lastId;
+    const overrideLastId = Number(overrideLastIdRaw);
+    const effectiveLastId = Number.isFinite(overrideLastId)
+        ? Math.max(0, Math.floor(overrideLastId))
+        : lastMessageId;
+    const requestId = `${Date.now()}-${++syncRequestSequence}`;
+
+    queuedMessageSync = false;
+    pendingRealtimeMessages = [];
+    if (syncTimeoutId !== null) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+    }
+
+    const retryCountRaw = Number(options?.retryCount);
+    const retryCount = Number.isFinite(retryCountRaw)
+        ? Math.max(0, Math.floor(retryCountRaw))
+        : 0;
+
+    currentSyncRequest = {
+        requestId,
+        startLastId: effectiveLastId,
+        receivedCount: 0,
+        messages: [],
+        conversationKey: activeConversationKey,
+        retryCount,
+    };
+
+    syncTimeoutId = setTimeout(() => {
+        if (!currentSyncRequest || currentSyncRequest.requestId !== requestId) {
+            return;
+        }
+
+        const timeoutStartLastId = currentSyncRequest.startLastId;
+        const timeoutRetryCount = currentSyncRequest.retryCount;
+        currentSyncRequest = null;
+        pendingRealtimeMessages = [];
+        syncTimeoutId = null;
+
+        if (timeoutRetryCount >= MESSAGE_SYNC_MAX_RETRIES) {
+            queuedMessageSync = false;
+            showError("网络波动，消息同步重试失败，请稍后自动恢复");
+            return;
+        }
+
+        requestMessages({
+            lastId: timeoutStartLastId,
+            retryCount: timeoutRetryCount + 1,
+        });
+    }, MESSAGE_SYNC_TIMEOUT_MS);
+
     socket.emit("check_messages", {
-        lastId: lastMessageId,
+        requestId,
+        lastId: effectiveLastId,
         conversationType: activeConversation.conversationType,
         peerUsername: activeConversation.peerUsername,
     });
 }
 
-function scrollToBottom() {
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function scheduleScrollToBottom(options = {}) {
-    const keepPinnedMs = Number(options.keepPinnedMs || 0);
-
-    if (scheduledScrollRafId !== null) {
-        cancelAnimationFrame(scheduledScrollRafId);
-    }
-    if (scheduledScrollTimeoutId !== null) {
-        clearTimeout(scheduledScrollTimeoutId);
-        scheduledScrollTimeoutId = null;
-    }
-
-    scheduledScrollRafId = requestAnimationFrame(() => {
-        scheduledScrollRafId = null;
-        scrollToBottom();
-        scheduledScrollTimeoutId = setTimeout(() => {
-            scheduledScrollTimeoutId = null;
-            scrollToBottom();
-        }, 70);
-    });
-
-    if (keepPinnedMs > 0) {
-        startStickyBottomMode(keepPinnedMs);
-    }
-}
-
-socket.on("message", function (data) {
-    const incomingConversation = normalizeIncomingConversation(data);
-    if (!incomingConversation) {
-        return;
-    }
-
-    const isActiveConversation =
-        incomingConversation.key === activeConversationKey;
-    if (!isActiveConversation) {
-        const conversation = conversations.get(incomingConversation.key);
-        if (conversation) {
-            conversation.hasUnread = true;
-        }
-        renderConversationList();
-        return;
-    }
+function renderMessagePayload(data, options = {}) {
+    const shouldAutoScroll = Boolean(options.shouldAutoScroll);
 
     if (typeof data.id === "number") {
         const existing = document.querySelector(
-            `.message-row[data-id=\"${data.id}\"]`,
+            `.message-row[data-id="${data.id}"]`,
         );
         if (existing) {
-            return;
+            return false;
         }
-    }
-
-    if (typeof data.id === "number" && data.id <= lastMessageId) {
-        return;
     }
 
     const utcTimestamp = new Date(data.timestamp);
@@ -741,28 +776,181 @@ socket.on("message", function (data) {
     messagesContainer.appendChild(messageElement);
 
     if (typeof data.id === "number") {
-        lastMessageId = data.id;
+        lastMessageId = Math.max(lastMessageId, data.id);
     }
 
-    if (!isHydratingConversation) {
+    if (shouldAutoScroll) {
         scheduleScrollToBottom();
     }
-});
+    return true;
+}
 
-socket.on("messages_sync_complete", (payload) => {
+function renderMessagesInOrder(messages, options = {}) {
+    if (!Array.isArray(messages) || !messages.length) {
+        return;
+    }
+
+    const sorted = [...messages].sort((a, b) => {
+        const aId = Number(a?.id || 0);
+        const bId = Number(b?.id || 0);
+        return aId - bId;
+    });
+
+    let renderedCount = 0;
+    sorted.forEach((item) => {
+        if (renderMessagePayload(item, { shouldAutoScroll: false })) {
+            renderedCount += 1;
+        }
+    });
+
+    if (renderedCount > 0 && options.shouldAutoScroll) {
+        scheduleScrollToBottom();
+    }
+}
+
+function resolveIncomingConversation(data) {
+    const incomingConversation = normalizeIncomingConversation(data);
+    if (!incomingConversation) {
+        return null;
+    }
+
+    const isActiveConversation =
+        incomingConversation.key === activeConversationKey;
+    if (!isActiveConversation) {
+        const conversation = conversations.get(incomingConversation.key);
+        if (conversation) {
+            conversation.hasUnread = true;
+        }
+        renderConversationList();
+        return null;
+    }
+
+    return incomingConversation;
+}
+
+function isCurrentSyncPayload(payload) {
+    if (!currentSyncRequest) {
+        return false;
+    }
+
     const incomingConversation = normalizeIncomingConversation(payload || {});
+    if (!incomingConversation) {
+        return false;
+    }
+
+    const payloadRequestId = safeText(
+        payload?.request_id || payload?.requestId,
+    );
+    if (
+        !payloadRequestId ||
+        payloadRequestId !== currentSyncRequest.requestId
+    ) {
+        return false;
+    }
+
+    return incomingConversation.key === currentSyncRequest.conversationKey;
+}
+
+function scrollToBottom() {
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function scheduleScrollToBottom(options = {}) {
+    const keepPinnedMs = Number(options.keepPinnedMs || 0);
+
+    if (scheduledScrollRafId !== null) {
+        cancelAnimationFrame(scheduledScrollRafId);
+    }
+    if (scheduledScrollTimeoutId !== null) {
+        clearTimeout(scheduledScrollTimeoutId);
+        scheduledScrollTimeoutId = null;
+    }
+
+    scheduledScrollRafId = requestAnimationFrame(() => {
+        scheduledScrollRafId = null;
+        scrollToBottom();
+        scheduledScrollTimeoutId = setTimeout(() => {
+            scheduledScrollTimeoutId = null;
+            scrollToBottom();
+        }, 70);
+    });
+
+    if (keepPinnedMs > 0) {
+        startStickyBottomMode(keepPinnedMs);
+    }
+}
+
+socket.on("message", function (data) {
+    const incomingConversation = resolveIncomingConversation(data);
     if (!incomingConversation) {
         return;
     }
 
-    if (incomingConversation.key !== activeConversationKey) {
+    if (
+        currentSyncRequest &&
+        incomingConversation.key === currentSyncRequest.conversationKey
+    ) {
+        pendingRealtimeMessages.push(data);
+        return;
+    }
+
+    renderMessagesInOrder([data], {
+        shouldAutoScroll: !isHydratingConversation,
+    });
+});
+
+socket.on("messages_batch", (payload) => {
+    if (!isCurrentSyncPayload(payload)) {
+        return;
+    }
+
+    const batch = Array.isArray(payload?.messages) ? payload.messages : [];
+    currentSyncRequest.receivedCount += batch.length;
+    currentSyncRequest.messages.push(...batch);
+});
+
+socket.on("messages_sync_complete", (payload) => {
+    if (!isCurrentSyncPayload(payload)) {
         return;
     }
 
     const count = Number(payload?.count || 0);
     const limit = Number(payload?.limit || MESSAGE_SYNC_FALLBACK_LIMIT);
+    const startLastId = currentSyncRequest.startLastId;
+    const receivedCount = currentSyncRequest.receivedCount;
+    const retryCount = currentSyncRequest.retryCount;
+
+    if (syncTimeoutId !== null) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+    }
+
+    if (count > receivedCount) {
+        currentSyncRequest = null;
+        pendingRealtimeMessages = [];
+        if (retryCount >= MESSAGE_SYNC_MAX_RETRIES) {
+            queuedMessageSync = false;
+            showError("网络波动，消息同步重试失败，请稍后自动恢复");
+            return;
+        }
+        requestMessages({ lastId: startLastId, retryCount: retryCount + 1 });
+        return;
+    }
+
+    const merged = [...currentSyncRequest.messages, ...pendingRealtimeMessages];
+    currentSyncRequest = null;
+    pendingRealtimeMessages = [];
+
+    renderMessagesInOrder(merged, {
+        shouldAutoScroll: !isHydratingConversation,
+    });
 
     if (count >= limit && limit > 0) {
+        requestMessages();
+        return;
+    }
+
+    if (queuedMessageSync) {
         requestMessages();
         return;
     }
@@ -866,7 +1054,9 @@ function createMessageElement({
         bubbleElement.appendChild(contentElement);
     }
 
-    if (isMessageManageable(data) && typeof data.id === "number") {
+    const canEdit = canEditMessage(data);
+    const canDelete = canDeleteMessage(data);
+    if ((canEdit || canDelete) && typeof data.id === "number") {
         const menuWrapper = document.createElement("div");
         menuWrapper.className = "message-actions-menu";
 
@@ -882,7 +1072,7 @@ function createMessageElement({
             data.message_type || "text",
         ).toLowerCase();
 
-        if (messageTypeForActions === "text") {
+        if (canEdit && messageTypeForActions === "text") {
             const editButton = document.createElement("button");
             editButton.type = "button";
             editButton.className = "message-menu-item";
@@ -895,15 +1085,19 @@ function createMessageElement({
             menuElement.appendChild(editButton);
         }
 
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "message-menu-item danger";
-        deleteButton.textContent = "删除";
-        deleteButton.addEventListener("click", (event) => {
-            event.stopPropagation();
-            closeActiveMessageMenu();
-            requestDeleteMessage(data.id);
-        });
+        if (canDelete) {
+            const deleteButton = document.createElement("button");
+            deleteButton.type = "button";
+            deleteButton.className = "message-menu-item danger";
+            deleteButton.textContent = "删除";
+            deleteButton.addEventListener("click", (event) => {
+                event.stopPropagation();
+                closeActiveMessageMenu();
+                requestDeleteMessage(data.id);
+            });
+
+            menuElement.appendChild(deleteButton);
+        }
 
         triggerButton.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -934,7 +1128,6 @@ function createMessageElement({
             });
         }
 
-        menuElement.appendChild(deleteButton);
         menuWrapper.append(triggerButton, menuElement);
         bubbleElement.appendChild(menuWrapper);
     }

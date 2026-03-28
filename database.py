@@ -484,7 +484,7 @@ def get_messages(last_id=0, limit=50, timezone_offset=0):
             FROM messages
             LEFT JOIN users ON users.username = messages.username
             WHERE messages.id > ? AND messages.conversation_type = 'public'
-            ORDER BY messages.timestamp ASC
+            ORDER BY messages.id ASC
             LIMIT ?
             ''',
             (last_id, limit)
@@ -558,7 +558,7 @@ def get_messages_for_conversation(username, conversation_type='public', peer_use
                   AND messages.conversation_type = 'private'
                   AND ((messages.username = ? AND messages.peer_username = ?)
                        OR (messages.username = ? AND messages.peer_username = ?))
-                ORDER BY messages.timestamp ASC
+                ORDER BY messages.id ASC
                 LIMIT ?
                 ''',
                 (last_id, username, peer_username, peer_username, username, limit)
@@ -571,7 +571,7 @@ def get_messages_for_conversation(username, conversation_type='public', peer_use
                 LEFT JOIN users ON users.username = messages.username
                 WHERE messages.id > ?
                   AND messages.conversation_type = 'public'
-                ORDER BY messages.timestamp ASC
+                ORDER BY messages.id ASC
                 LIMIT ?
                 ''',
                 (last_id, limit)

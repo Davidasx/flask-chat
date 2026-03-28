@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.3'
+APP_VERSION = '1.3.4'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -946,13 +946,8 @@ def handle_edit_message(data):
     if (original_message['message_type'] or 'text') != 'text':
         return
 
-    current_user_is_admin = database.is_admin(username)
-    original_author_is_admin = bool(original_message['is_admin'])
     is_owner = original_message['username'] == username
-    if original_message['conversation_type'] == 'private':
-        can_manage = is_owner
-    else:
-        can_manage = is_owner or (current_user_is_admin and not original_author_is_admin)
+    can_manage = is_owner
     if not can_manage:
         return
 
@@ -1028,11 +1023,13 @@ def handle_delete_message(data):
 @socketio.on('check_messages')
 def handle_check_messages(data):
     # 获取最新消息
-    last_id = (data or {}).get('lastId', 0)
+    payload = data if isinstance(data, dict) else {}
+    last_id = payload.get('lastId', 0)
     try:
         last_id = int(last_id)
     except (TypeError, ValueError):
         last_id = 0
+    request_id = str(payload.get('requestId', '')).strip()
     username = session.get('username')
     token = session.get('token')
     if not username or not token:
@@ -1040,7 +1037,7 @@ def handle_check_messages(data):
     if not database.verify_session(username, token):
         return
 
-    conversation_type, peer_username = _resolve_conversation(data, username)
+    conversation_type, peer_username = _resolve_conversation(payload, username)
     if not conversation_type:
         return
 
@@ -1052,15 +1049,30 @@ def handle_check_messages(data):
         last_id=last_id,
         limit=page_limit,
     )
-    # 发送新消息给客户端
-    for message in messages:
-        emit('message', _build_message_payload(message, viewer_username=username))
+    # 使用批量同步减少网络抖动下逐条事件丢失导致的断层
+    message_payloads = [
+        _build_message_payload(message, viewer_username=username)
+        for message in messages
+    ]
+
+    emit(
+        'messages_batch',
+        {
+            'messages': message_payloads,
+            'count': len(message_payloads),
+            'limit': page_limit,
+            'request_id': request_id,
+            'conversation_type': conversation_type,
+            'conversation_peer': peer_username or '',
+        },
+    )
 
     emit(
         'messages_sync_complete',
         {
             'count': len(messages),
             'limit': page_limit,
+            'request_id': request_id,
             'conversation_type': conversation_type,
             'conversation_peer': peer_username or '',
         },
