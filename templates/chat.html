@@ -73,6 +73,20 @@
                 </div>
                 <div class="chat-container">
                     <div id="messages"></div>
+                    <div id="reply-preview" class="reply-preview" hidden>
+                        <div class="reply-preview-text">
+                            <span id="reply-preview-user"></span>
+                            <span id="reply-preview-snippet"></span>
+                        </div>
+                        <button
+                            type="button"
+                            id="reply-preview-cancel"
+                            class="reply-preview-cancel"
+                            aria-label="取消回复"
+                        >
+                            ×
+                        </button>
+                    </div>
                     <div class="input-area">
                         <div class="input-tools">
                             <button
@@ -157,6 +171,29 @@
                         开始
                     </button>
                 </div>
+            </div>
+        </div>
+        <div
+            id="image-preview-modal"
+            class="modal-backdrop"
+            hidden
+            aria-hidden="true"
+        >
+            <div
+                class="image-preview-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="图片预览"
+            >
+                <button
+                    type="button"
+                    class="image-preview-close"
+                    aria-label="关闭预览"
+                >
+                    ×
+                </button>
+                <img id="image-preview-target" alt="图片预览" />
+                <div id="image-preview-name" class="image-preview-name"></div>
             </div>
         </div>
         <script>

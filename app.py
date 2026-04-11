@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.6'
+APP_VERSION = '1.3.7'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -172,6 +172,19 @@ def _resolve_conversation(payload, current_username):
 
 
 def _build_message_payload(message_row, viewer_username=None):
+    reply_to_id = message_row['reply_to_id'] if 'reply_to_id' in message_row.keys() else None
+    if reply_to_id:
+        reply_message = database.get_message_by_id(reply_to_id)
+        if _is_valid_reply_target(
+            reply_message,
+            message_row['conversation_type'] or 'public',
+            message_row['peer_username'],
+            message_row['username'],
+        ):
+            pass
+        else:
+            reply_to_id = None
+
     data = {
         'username': message_row['username'],
         'message': message_row['message'],
@@ -187,6 +200,7 @@ def _build_message_payload(message_row, viewer_username=None):
         'file_name': message_row['file_name'],
         'file_size': message_row['file_size'],
         'file_mime': message_row['file_mime'],
+        'reply_to_id': reply_to_id,
     }
 
     if data['conversation_type'] == 'private' and viewer_username:
@@ -199,6 +213,27 @@ def _build_message_payload(message_row, viewer_username=None):
         data['is_admin'] = False
 
     return data
+
+
+def _is_valid_reply_target(reply_message, conversation_type, peer_username, sender_username):
+    if not reply_message:
+        return False
+
+    if reply_message['conversation_type'] != conversation_type:
+        return False
+
+    if conversation_type != 'private':
+        return True
+
+    if not peer_username or not sender_username:
+        return False
+
+    participants = {reply_message['username'], reply_message['peer_username']}
+    expected = {sender_username, peer_username}
+    if None in participants or None in expected:
+        return False
+
+    return participants == expected
 
 
 def _save_avatar_image(username, file_storage):
@@ -861,6 +896,23 @@ def handle_message(data):
     if not conversation_type:
         return
 
+    reply_to_id = None
+    try:
+        reply_to_id = int(payload.get('replyToId') or 0)
+    except (TypeError, ValueError):
+        reply_to_id = None
+    if reply_to_id and reply_to_id > 0:
+        reply_message = database.get_message_by_id(reply_to_id)
+        if not _is_valid_reply_target(
+            reply_message,
+            conversation_type,
+            peer_username,
+            username,
+        ):
+            reply_to_id = None
+    else:
+        reply_to_id = None
+
     file_url = None
     file_name = None
     file_size = None
@@ -901,6 +953,7 @@ def handle_message(data):
         file_name=file_name,
         file_size=file_size,
         file_mime=file_mime,
+        reply_to_id=reply_to_id,
     )
     if not message_id:
         return

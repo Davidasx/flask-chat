@@ -24,6 +24,16 @@ const uploadFileAction = document.getElementById("upload-file-action");
 const imageFileInput = document.getElementById("image-file-input");
 const genericFileInput = document.getElementById("generic-file-input");
 const privateChatModal = document.getElementById("private-chat-modal");
+const imagePreviewModal = document.getElementById("image-preview-modal");
+const imagePreviewTarget = document.getElementById("image-preview-target");
+const imagePreviewName = document.getElementById("image-preview-name");
+const imagePreviewCloseButton = document.querySelector(".image-preview-close");
+const replyPreview = document.getElementById("reply-preview");
+const replyPreviewUser = document.getElementById("reply-preview-user");
+const replyPreviewSnippet = document.getElementById("reply-preview-snippet");
+const replyPreviewCancelButton = document.getElementById(
+    "reply-preview-cancel",
+);
 const privateChatUserSelect = document.getElementById(
     "private-chat-user-select",
 );
@@ -48,6 +58,8 @@ let currentSyncRequest = null;
 let queuedMessageSync = false;
 let pendingRealtimeMessages = [];
 let syncTimeoutId = null;
+let activeReplyTarget = null;
+const messagePayloadById = new Map();
 
 function detectMobileMode() {
     return window.matchMedia("(max-width: 900px)").matches;
@@ -241,6 +253,7 @@ function clearMessagesView() {
     messagesContainer.innerHTML = "";
     lastMessageId = 0;
     lastDividerTimeMs = null;
+    messagePayloadById.clear();
     currentSyncRequest = null;
     queuedMessageSync = false;
     pendingRealtimeMessages = [];
@@ -248,6 +261,7 @@ function clearMessagesView() {
         clearTimeout(syncTimeoutId);
         syncTimeoutId = null;
     }
+    clearReplyTarget();
     closeActiveMessageMenu();
 }
 
@@ -573,8 +587,10 @@ function sendMessage() {
         message,
         conversationType: activeConversation.conversationType,
         peerUsername: activeConversation.peerUsername,
+        replyToId: activeReplyTarget?.id || null,
     });
     messageInput.value = "";
+    clearReplyTarget();
 }
 
 function closeAttachMenu() {
@@ -604,6 +620,174 @@ function formatFileSize(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+function truncateText(text, limit = 120) {
+    const value = safeText(text).trim();
+    if (!value) {
+        return "";
+    }
+    if (value.length <= limit) {
+        return value;
+    }
+    return `${value.slice(0, limit)}...`;
+}
+
+function formatReplySnippet(reply) {
+    if (!reply) {
+        return "";
+    }
+    const replyType = safeText(reply.message_type || "text").toLowerCase();
+    if (replyType === "image") {
+        return "[图片]";
+    }
+    if (replyType === "file") {
+        const name = safeText(reply.file_name || "");
+        return name ? `[文件] ${name}` : "[文件]";
+    }
+    return truncateText(reply.message || "", 120);
+}
+
+function findMessageRowById(messageId) {
+    if (!Number.isFinite(messageId) || messageId <= 0) {
+        return null;
+    }
+    return document.querySelector(`.message-row[data-id="${messageId}"]`);
+}
+
+function jumpToReferencedMessage(messageId) {
+    const rowElement = findMessageRowById(messageId);
+    if (!rowElement) {
+        showError("被引用消息未加载，无法跳转");
+        return;
+    }
+
+    rowElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    rowElement.classList.add("referenced-highlight");
+    setTimeout(() => {
+        rowElement.classList.remove("referenced-highlight");
+    }, 1500);
+}
+
+function resolveReplyData(data) {
+    if (!data) {
+        return null;
+    }
+
+    const direct = data.reply_to || data.replyTo;
+    if (direct && direct.username) {
+        return {
+            username: safeText(direct.username),
+            message: safeText(direct.message || ""),
+            message_type: safeText(
+                direct.message_type || direct.messageType || "text",
+            ),
+            file_name: safeText(direct.file_name || direct.fileName || ""),
+        };
+    }
+
+    const replyIdRaw = data.reply_to_id ?? data.replyToId;
+    const replyId = Number(replyIdRaw);
+    if (!Number.isFinite(replyId) || replyId <= 0) {
+        return null;
+    }
+
+    const cached = messagePayloadById.get(replyId);
+    if (!cached) {
+        return {
+            username: "消息",
+            message: `#${replyId}`,
+            message_type: "text",
+            file_name: "",
+        };
+    }
+
+    return {
+        username: safeText(cached.username),
+        message: safeText(cached.message || ""),
+        message_type: safeText(cached.message_type || "text"),
+        file_name: safeText(cached.file_name || ""),
+    };
+}
+
+function resolveReplyId(data) {
+    const directId = Number(data?.reply_to?.id ?? data?.replyTo?.id);
+    if (Number.isFinite(directId) && directId > 0) {
+        return directId;
+    }
+
+    const raw = Number(data?.reply_to_id ?? data?.replyToId);
+    if (!Number.isFinite(raw) || raw <= 0) {
+        return null;
+    }
+    return raw;
+}
+
+function setReplyTarget(target) {
+    if (!target || !target.id) {
+        clearReplyTarget();
+        return;
+    }
+    activeReplyTarget = target;
+    if (replyPreview) {
+        replyPreview.hidden = false;
+    }
+    if (replyPreviewUser) {
+        const name = safeText(target.username || "");
+        replyPreviewUser.textContent = name ? `${name}:` : "";
+    }
+    if (replyPreviewSnippet) {
+        replyPreviewSnippet.textContent = formatReplySnippet(target);
+    }
+}
+
+function clearReplyTarget() {
+    activeReplyTarget = null;
+    if (replyPreview) {
+        replyPreview.hidden = true;
+    }
+    if (replyPreviewUser) {
+        replyPreviewUser.textContent = "";
+    }
+    if (replyPreviewSnippet) {
+        replyPreviewSnippet.textContent = "";
+    }
+}
+
+function isImageFile(file) {
+    if (!file) {
+        return false;
+    }
+    if (file.type && file.type.startsWith("image/")) {
+        return true;
+    }
+    const name = file.name || "";
+    return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+}
+
+function openImagePreview(url, name = "") {
+    if (!imagePreviewModal || !imagePreviewTarget) {
+        return;
+    }
+    imagePreviewTarget.src = url;
+    imagePreviewTarget.alt = name ? `${name}` : "图片预览";
+    if (imagePreviewName) {
+        imagePreviewName.textContent = name || "";
+    }
+    imagePreviewModal.hidden = false;
+    imagePreviewModal.setAttribute("aria-hidden", "false");
+}
+
+function closeImagePreview() {
+    if (!imagePreviewModal || !imagePreviewTarget) {
+        return;
+    }
+    imagePreviewModal.hidden = true;
+    imagePreviewModal.setAttribute("aria-hidden", "true");
+    imagePreviewTarget.removeAttribute("src");
+    if (imagePreviewName) {
+        imagePreviewName.textContent = "";
+    }
+}
+
 function uploadAttachment(file, uploadKind) {
     if (!file) {
         return;
@@ -616,9 +800,12 @@ function uploadAttachment(file, uploadKind) {
         return;
     }
 
+    const effectiveUploadKind =
+        uploadKind === "file" && isImageFile(file) ? "image" : uploadKind;
+
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("uploadKind", uploadKind);
+    formData.append("uploadKind", effectiveUploadKind);
     formData.append("conversationType", activeConversation.conversationType);
     formData.append("peerUsername", activeConversation.peerUsername || "");
 
@@ -646,8 +833,10 @@ function uploadAttachment(file, uploadKind) {
                 fileMime: payload.fileMime,
                 conversationType: activeConversation.conversationType,
                 peerUsername: activeConversation.peerUsername,
+                replyToId: activeReplyTarget?.id || null,
                 message: "",
             });
+            clearReplyTarget();
         })
         .catch(() => {
             showError("上传失败，请稍后重试");
@@ -790,6 +979,7 @@ function renderMessagePayload(data, options = {}) {
     messagesContainer.appendChild(messageElement);
 
     if (typeof data.id === "number") {
+        messagePayloadById.set(data.id, data);
         lastMessageId = Math.max(lastMessageId, data.id);
     }
 
@@ -1031,12 +1221,19 @@ function createMessageElement({
     const contentElement = document.createElement("p");
     const messageType = safeText(data.message_type || "text").toLowerCase();
 
+    const replyId = resolveReplyId(data);
+    const replyData = resolveReplyData(data);
+    if (replyData && replyData.username) {
+        bubbleElement.classList.add("has-reply");
+        bubbleElement.appendChild(createReplyQuoteElement(replyData, replyId));
+    }
+
     if (messageType === "image" && data.file_url) {
         bubbleElement.classList.add("image-only-bubble");
-        const imageLink = document.createElement("a");
-        imageLink.href = data.file_url;
-        imageLink.target = "_blank";
-        imageLink.rel = "noopener noreferrer";
+        const imageButton = document.createElement("button");
+        imageButton.type = "button";
+        imageButton.className = "image-preview-trigger";
+        imageButton.setAttribute("aria-label", "查看图片");
 
         const imageElement = document.createElement("img");
         imageElement.className = "message-image";
@@ -1047,9 +1244,14 @@ function createMessageElement({
             scheduleScrollToBottom();
         });
 
-        imageLink.appendChild(imageElement);
-        bubbleElement.appendChild(imageLink);
+        imageButton.addEventListener("click", () => {
+            openImagePreview(data.file_url, safeText(data.file_name || ""));
+        });
+
+        imageButton.appendChild(imageElement);
+        bubbleElement.appendChild(imageButton);
     } else if (messageType === "file" && data.file_url) {
+        bubbleElement.classList.add("file-only-bubble");
         const fileLink = document.createElement("a");
         fileLink.className = "message-file-link";
         fileLink.href = data.file_url;
@@ -1070,7 +1272,7 @@ function createMessageElement({
 
     const canEdit = canEditMessage(data);
     const canDelete = canDeleteMessage(data);
-    if ((canEdit || canDelete) && typeof data.id === "number") {
+    if (typeof data.id === "number") {
         const menuWrapper = document.createElement("div");
         menuWrapper.className = "message-actions-menu";
 
@@ -1085,6 +1287,27 @@ function createMessageElement({
         const messageTypeForActions = safeText(
             data.message_type || "text",
         ).toLowerCase();
+
+        const replyButton = document.createElement("button");
+        replyButton.type = "button";
+        replyButton.className = "message-menu-item";
+        replyButton.textContent = "回复";
+        replyButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            closeActiveMessageMenu();
+            setReplyTarget({
+                id: data.id,
+                username: safeText(data.username),
+                message: safeText(data.message),
+                message_type: messageTypeForActions,
+                file_name: safeText(data.file_name || ""),
+            });
+            if (messageInput) {
+                messageInput.focus();
+            }
+        });
+
+        menuElement.appendChild(replyButton);
 
         if (canEdit && messageTypeForActions === "text") {
             const editButton = document.createElement("button");
@@ -1331,6 +1554,22 @@ if (privateChatModal) {
     });
 }
 
+if (imagePreviewCloseButton) {
+    imagePreviewCloseButton.addEventListener("click", closeImagePreview);
+}
+
+if (imagePreviewModal) {
+    imagePreviewModal.addEventListener("click", (event) => {
+        if (event.target === imagePreviewModal) {
+            closeImagePreview();
+        }
+    });
+}
+
+if (replyPreviewCancelButton) {
+    replyPreviewCancelButton.addEventListener("click", clearReplyTarget);
+}
+
 setInterval(() => {
     requestMessages();
 }, 5000);
@@ -1357,6 +1596,10 @@ document.addEventListener("click", () => {
 
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+        if (imagePreviewModal && !imagePreviewModal.hidden) {
+            closeImagePreview();
+            return;
+        }
         if (privateChatModal && !privateChatModal.hidden) {
             closePrivateChatModal();
             return;
@@ -1411,6 +1654,33 @@ function createAvatarElement(avatarUrl, userName) {
     avatarElement.src = avatarUrl;
     avatarElement.alt = `${safeText(userName)}头像`;
     return avatarElement;
+}
+
+function createReplyQuoteElement(reply, replyId = null) {
+    const replyElement = document.createElement("div");
+    replyElement.className = "reply-quote";
+
+    const userElement = document.createElement("span");
+    userElement.className = "reply-quote-username";
+    userElement.textContent = safeText(reply.username || "");
+
+    const separatorElement = document.createElement("span");
+    separatorElement.textContent = ": ";
+
+    const snippetElement = document.createElement("span");
+    snippetElement.textContent = formatReplySnippet(reply);
+
+    replyElement.append(userElement, separatorElement, snippetElement);
+
+    if (Number.isFinite(replyId) && replyId > 0) {
+        replyElement.title = "点击跳转到被引用消息";
+        replyElement.addEventListener("click", (event) => {
+            event.stopPropagation();
+            jumpToReferencedMessage(replyId);
+        });
+    }
+
+    return replyElement;
 }
 
 function resolveAvatarUrl(avatarUrl) {

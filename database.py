@@ -35,6 +35,7 @@ def init_db():
                 file_name TEXT DEFAULT NULL,
                 file_size INTEGER DEFAULT NULL,
                 file_mime TEXT DEFAULT NULL,
+                reply_to_id INTEGER DEFAULT NULL,
                 timestamp DATETIME,
                 edited_at DATETIME DEFAULT NULL
             )
@@ -79,6 +80,8 @@ def init_db():
             conn.execute('ALTER TABLE messages ADD COLUMN file_size INTEGER DEFAULT NULL')
         if 'file_mime' not in message_column_names:
             conn.execute('ALTER TABLE messages ADD COLUMN file_mime TEXT DEFAULT NULL')
+        if 'reply_to_id' not in message_column_names:
+            conn.execute('ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL')
 
         # 创建会话表
         conn.execute('''
@@ -504,6 +507,7 @@ def add_message(
     file_name=None,
     file_size=None,
     file_mime=None,
+    reply_to_id=None,
 ):
     try:
         conn = get_db_connection()
@@ -520,9 +524,10 @@ def add_message(
                     file_name,
                     file_size,
                     file_mime,
+                    reply_to_id,
                     timestamp
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     username,
@@ -534,6 +539,7 @@ def add_message(
                     file_name,
                     file_size,
                     file_mime,
+                    reply_to_id,
                     datetime.datetime.utcnow(),
                 )
             )
