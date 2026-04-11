@@ -187,10 +187,36 @@
 }
 
 .conversation-item-label {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.conversation-item-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.conversation-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.28);
+}
+
+.conversation-status-dot.online {
+    background: #22c55e;
+}
+
+.conversation-status-dot.offline {
+    background: #ef4444;
 }
 
 .conversation-unread-badge {

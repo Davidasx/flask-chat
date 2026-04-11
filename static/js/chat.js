@@ -288,6 +288,10 @@ function renderConversationList() {
         labelElement.textContent = conversation.label;
         item.appendChild(labelElement);
 
+        const metaElement = document.createElement("span");
+        metaElement.className = "conversation-item-meta";
+        let hasMeta = false;
+
         if (
             conversation.key !== activeConversationKey &&
             Number(conversation.unreadCount || 0) > 0
@@ -297,7 +301,22 @@ function renderConversationList() {
             unreadBadge.textContent = formatUnreadCount(
                 Number(conversation.unreadCount || 0),
             );
-            item.appendChild(unreadBadge);
+            metaElement.appendChild(unreadBadge);
+            hasMeta = true;
+        }
+
+        if (conversation.conversationType === "private") {
+            const statusDot = document.createElement("span");
+            const isPeerOnline = onlineUsers.has(conversation.peerUsername);
+            statusDot.className = `conversation-status-dot ${isPeerOnline ? "online" : "offline"}`;
+            statusDot.setAttribute("aria-hidden", "true");
+            item.title = `${conversation.label}（${isPeerOnline ? "在线" : "离线"}）`;
+            metaElement.appendChild(statusDot);
+            hasMeta = true;
+        }
+
+        if (hasMeta) {
+            item.appendChild(metaElement);
         }
 
         item.addEventListener("click", () => {
@@ -572,6 +591,7 @@ socket.on("disconnect", () => {
         syncTimeoutId = null;
     }
     onlineUsers.clear();
+    renderConversationList();
     updateConversationTitle();
 });
 
@@ -584,6 +604,7 @@ socket.on("online_presence", (payload) => {
             onlineUsers.add(normalized);
         }
     });
+    renderConversationList();
     updateConversationTitle();
 });
 
