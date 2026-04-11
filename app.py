@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.8'
+APP_VERSION = '1.3.9'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -141,11 +141,27 @@ def _save_chat_upload(file_storage, upload_kind):
     except OSError:
         return None, '文件保存失败'
 
+    image_width = None
+    image_height = None
+    if upload_kind == 'image':
+        try:
+            with Image.open(absolute_path) as uploaded_image:
+                image_width, image_height = uploaded_image.size
+                image_width = int(image_width)
+                image_height = int(image_height)
+                if image_width <= 0 or image_height <= 0:
+                    raise ValueError('invalid image size')
+        except (UnidentifiedImageError, OSError, ValueError):
+            _delete_chat_upload(f'/static/uploads/chat_files/{stored_name}')
+            return None, '图片文件无效或已损坏'
+
     return {
         'url': f'/static/uploads/chat_files/{stored_name}',
         'name': original_name,
         'size': file_size,
         'mime': (file_storage.mimetype or 'application/octet-stream').lower(),
+        'image_width': image_width,
+        'image_height': image_height,
     }, None
 
 
@@ -206,6 +222,8 @@ def _build_message_payload(message_row, viewer_username=None):
         'file_name': message_row['file_name'],
         'file_size': message_row['file_size'],
         'file_mime': message_row['file_mime'],
+        'image_width': message_row['image_width'] if 'image_width' in message_row.keys() else None,
+        'image_height': message_row['image_height'] if 'image_height' in message_row.keys() else None,
         'reply_to_id': reply_to_id,
     }
 
@@ -467,6 +485,8 @@ def chat_upload():
         'fileName': uploaded['name'],
         'fileSize': uploaded['size'],
         'fileMime': uploaded['mime'],
+        'imageWidth': uploaded.get('image_width'),
+        'imageHeight': uploaded.get('image_height'),
         'conversationType': conversation_type,
         'peerUsername': peer_username,
     })
@@ -766,12 +786,14 @@ def login():
                 app.permanent_session_lifetime = datetime.timedelta(days=30)
             else:
                 session.permanent = False
+
+            token_lifetime = datetime.timedelta(days=30) if remember else datetime.timedelta(hours=24)
             
             # 生成 token
             token = jwt.encode({
                 'user_id': user['id'],
                 'username': username,
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+                'exp': datetime.datetime.utcnow() + token_lifetime
             }, app.config['SECRET_KEY'])
 
             # 存储token到session
@@ -971,6 +993,8 @@ def handle_message(data):
     file_name = None
     file_size = None
     file_mime = None
+    image_width = None
+    image_height = None
 
     if message_type == 'text':
         if not message:
@@ -995,6 +1019,26 @@ def handle_message(data):
         stored_path = os.path.join(app.root_path, file_url.lstrip('/'))
         if not os.path.exists(stored_path):
             return
+
+        if message_type == 'image':
+            try:
+                image_width = int(payload.get('imageWidth', 0))
+                image_height = int(payload.get('imageHeight', 0))
+            except (TypeError, ValueError):
+                image_width = 0
+                image_height = 0
+
+            if image_width <= 0 or image_height <= 0:
+                try:
+                    with Image.open(stored_path) as uploaded_image:
+                        image_width, image_height = uploaded_image.size
+                        image_width = int(image_width)
+                        image_height = int(image_height)
+                except (UnidentifiedImageError, OSError, ValueError):
+                    return
+
+            if image_width <= 0 or image_height <= 0:
+                return
     
     # 保存消息到数据库
     message_id = database.add_message(
@@ -1008,6 +1052,8 @@ def handle_message(data):
         file_size=file_size,
         file_mime=file_mime,
         reply_to_id=reply_to_id,
+        image_width=image_width,
+        image_height=image_height,
     )
     if not message_id:
         return

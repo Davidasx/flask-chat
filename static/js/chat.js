@@ -912,6 +912,48 @@ function isImageFile(file) {
     return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
 }
 
+function resolveImageSourceSize(data) {
+    const widthRaw = Number(data?.image_width ?? data?.imageWidth ?? 0);
+    const heightRaw = Number(data?.image_height ?? data?.imageHeight ?? 0);
+    const width = Math.floor(widthRaw);
+    const height = Math.floor(heightRaw);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+        return null;
+    }
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+    return { width, height };
+}
+
+function computeImageRenderSize(sourceWidth, sourceHeight) {
+    const maxWidth = Math.min(320, Math.floor(window.innerWidth * 0.58));
+    const maxHeight = 280;
+
+    let nextWidth = sourceWidth;
+    let nextHeight = sourceHeight;
+    const scale = Math.min(maxWidth / nextWidth, maxHeight / nextHeight, 1);
+
+    nextWidth = Math.max(1, Math.floor(nextWidth * scale));
+    nextHeight = Math.max(1, Math.floor(nextHeight * scale));
+    return { width: nextWidth, height: nextHeight };
+}
+
+function applyImageReservedSlot(imageElement, data) {
+    const sourceSize = resolveImageSourceSize(data);
+    if (!sourceSize) {
+        return;
+    }
+
+    const renderSize = computeImageRenderSize(
+        sourceSize.width,
+        sourceSize.height,
+    );
+    imageElement.style.width = `${renderSize.width}px`;
+    imageElement.style.height = `${renderSize.height}px`;
+    imageElement.style.aspectRatio = `${sourceSize.width} / ${sourceSize.height}`;
+}
+
 function openImagePreview(url, name = "") {
     if (!imagePreviewModal || !imagePreviewTarget) {
         return;
@@ -980,6 +1022,8 @@ function uploadAttachment(file, uploadKind) {
                 fileName: payload.fileName,
                 fileSize: payload.fileSize,
                 fileMime: payload.fileMime,
+                imageWidth: payload.imageWidth,
+                imageHeight: payload.imageHeight,
                 conversationType: activeConversation.conversationType,
                 peerUsername: activeConversation.peerUsername,
                 replyToId: activeReplyTarget?.id || null,
@@ -1386,11 +1430,14 @@ function createMessageElement({
 
         const imageElement = document.createElement("img");
         imageElement.className = "message-image";
+        applyImageReservedSlot(imageElement, data);
         imageElement.src = data.file_url;
         imageElement.alt = safeText(data.file_name || "图片消息");
         imageElement.loading = "lazy";
         imageElement.addEventListener("load", () => {
-            scheduleScrollToBottom();
+            if (isOwn || isMessagesViewNearBottom(48)) {
+                scheduleScrollToBottom({ force: true });
+            }
         });
 
         imageButton.addEventListener("click", () => {
