@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.7'
+APP_VERSION = '1.3.8'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -169,6 +169,12 @@ def _resolve_conversation(payload, current_username):
     if not database.user_exists(peer_username):
         return None, None
     return 'private', peer_username
+
+
+def _conversation_key(conversation_type, peer_username=None):
+    if conversation_type == 'private' and peer_username:
+        return f'private:{peer_username}'
+    return 'public'
 
 
 def _build_message_payload(message_row, viewer_username=None):
@@ -475,6 +481,54 @@ def chat_private_conversations():
 
     peers = database.get_private_conversation_peers(username)
     return jsonify({'peers': peers})
+
+
+@app.route('/chat/unread-counts', methods=['GET'])
+@login_required
+def chat_unread_counts():
+    username = session.get('username')
+    if not username:
+        return jsonify({'error': '未登录'}), 401
+
+    return jsonify({'counts': database.get_conversation_unread_counts(username)})
+
+
+@app.route('/chat/mark-read', methods=['POST'])
+@login_required
+def chat_mark_read():
+    username = session.get('username')
+    if not username:
+        return jsonify({'error': '未登录'}), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    conversation_type, peer_username = _resolve_conversation(payload, username)
+    if not conversation_type:
+        return jsonify({'error': '会话无效'}), 400
+
+    last_message_id_raw = payload.get('lastMessageId')
+    if last_message_id_raw is None or str(last_message_id_raw).strip() == '':
+        last_message_id = None
+    else:
+        try:
+            last_message_id = max(0, int(last_message_id_raw))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'lastMessageId 无效'}), 400
+
+    success = database.set_conversation_read(
+        username,
+        conversation_type=conversation_type,
+        peer_username=peer_username,
+        last_read_message_id=last_message_id,
+    )
+    if not success:
+        return jsonify({'error': '标记已读失败'}), 500
+
+    counts = database.get_conversation_unread_counts(username)
+    key = _conversation_key(conversation_type, peer_username)
+    return jsonify({
+        'conversationKey': key,
+        'unreadCount': int(counts.get(key, 0)),
+    })
 
 
 @app.route('/admin/login', methods=['GET', 'POST'])

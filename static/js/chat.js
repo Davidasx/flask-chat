@@ -12,6 +12,10 @@ const MESSAGE_SYNC_MAX_RETRIES = 4;
 const messagesContainer = document.getElementById("messages");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
+const newMessagesIndicator = document.getElementById("new-messages-indicator");
+const newMessagesIndicatorText = document.getElementById(
+    "new-messages-indicator-text",
+);
 const chatLayoutElement = document.querySelector(".chat-layout");
 const conversationListElement = document.getElementById("conversation-list");
 const conversationTitleElement = document.getElementById("conversation-title");
@@ -48,9 +52,6 @@ const onlineUsers = new Set();
 let desktopSidebarCollapsed = false;
 let mobileSidebarVisible = false;
 let isMobileMode = false;
-let scheduledScrollRafId = null;
-let scheduledScrollTimeoutId = null;
-let stickyScrollIntervalId = null;
 let isHydratingConversation = false;
 const MESSAGE_SYNC_FALLBACK_LIMIT = 50;
 let syncRequestSequence = 0;
@@ -60,6 +61,11 @@ let pendingRealtimeMessages = [];
 let syncTimeoutId = null;
 let activeReplyTarget = null;
 const messagePayloadById = new Map();
+let startupAutoScrollEnabled = true;
+let hasCompletedStartupHydration = false;
+let activeConversationPendingMessages = 0;
+let pendingMarkReadRequest = false;
+let markReadRequestInFlight = false;
 
 function detectMobileMode() {
     return window.matchMedia("(max-width: 900px)").matches;
@@ -149,7 +155,7 @@ function createConversation(conversationType, peerUsername = "") {
         conversationType,
         peerUsername,
         label: conversationLabel(conversationType, peerUsername),
-        hasUnread: false,
+        unreadCount: 0,
     };
 }
 
@@ -194,6 +200,64 @@ async function hydratePrivateConversations() {
     } catch (error) {}
 }
 
+function setConversationUnreadCount(conversationKeyValue, unreadCount) {
+    const conversation = conversations.get(conversationKeyValue);
+    if (!conversation) {
+        return;
+    }
+    const normalizedCount = Number.isFinite(Number(unreadCount))
+        ? Math.max(0, Math.floor(Number(unreadCount)))
+        : 0;
+    conversation.unreadCount = normalizedCount;
+}
+
+function increaseConversationUnreadCount(conversationKeyValue, delta = 1) {
+    const conversation = conversations.get(conversationKeyValue);
+    if (!conversation) {
+        return;
+    }
+    const normalizedDelta = Number.isFinite(Number(delta))
+        ? Math.max(0, Math.floor(Number(delta)))
+        : 0;
+    conversation.unreadCount = Math.max(
+        0,
+        Number(conversation.unreadCount || 0) + normalizedDelta,
+    );
+}
+
+function formatUnreadCount(unreadCount) {
+    if (unreadCount > 99) {
+        return "99+";
+    }
+    return `${unreadCount}`;
+}
+
+function applyUnreadCounts(counts) {
+    const unreadMap = counts && typeof counts === "object" ? counts : {};
+    conversations.forEach((conversation) => {
+        const nextCount = Number(unreadMap[conversation.key] || 0);
+        setConversationUnreadCount(conversation.key, nextCount);
+    });
+
+    setConversationUnreadCount(activeConversationKey, 0);
+    renderConversationList();
+}
+
+async function hydrateUnreadCounts() {
+    try {
+        const response = await fetch("/chat/unread-counts", {
+            method: "GET",
+            credentials: "same-origin",
+        });
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = await response.json();
+        applyUnreadCounts(payload?.counts || {});
+    } catch (error) {}
+}
+
 function renderConversationList() {
     if (!conversationListElement) {
         return;
@@ -219,8 +283,23 @@ function renderConversationList() {
             item.classList.add("active");
         }
 
-        const suffix = conversation.hasUnread ? " •" : "";
-        item.textContent = `${conversation.label}${suffix}`;
+        const labelElement = document.createElement("span");
+        labelElement.className = "conversation-item-label";
+        labelElement.textContent = conversation.label;
+        item.appendChild(labelElement);
+
+        if (
+            conversation.key !== activeConversationKey &&
+            Number(conversation.unreadCount || 0) > 0
+        ) {
+            const unreadBadge = document.createElement("span");
+            unreadBadge.className = "conversation-unread-badge";
+            unreadBadge.textContent = formatUnreadCount(
+                Number(conversation.unreadCount || 0),
+            );
+            item.appendChild(unreadBadge);
+        }
+
         item.addEventListener("click", () => {
             switchConversation(conversation.key);
             if (isMobileMode) {
@@ -265,27 +344,95 @@ function clearMessagesView() {
     closeActiveMessageMenu();
 }
 
-function stopStickyBottomMode() {
-    if (stickyScrollIntervalId !== null) {
-        clearInterval(stickyScrollIntervalId);
-        stickyScrollIntervalId = null;
+function isMessagesViewNearBottom(thresholdPx = 32) {
+    if (!messagesContainer) {
+        return true;
     }
+
+    const distanceToBottom =
+        messagesContainer.scrollHeight -
+        messagesContainer.scrollTop -
+        messagesContainer.clientHeight;
+    return distanceToBottom <= thresholdPx;
 }
 
-function startStickyBottomMode(durationMs = 0) {
-    stopStickyBottomMode();
-    if (durationMs <= 0) {
+function updateNewMessagesIndicator() {
+    if (!newMessagesIndicator || !newMessagesIndicatorText) {
         return;
     }
 
-    const startedAt = Date.now();
-    stickyScrollIntervalId = setInterval(() => {
-        if (Date.now() - startedAt >= durationMs) {
-            stopStickyBottomMode();
-            return;
+    if (activeConversationPendingMessages <= 0) {
+        newMessagesIndicator.hidden = true;
+        return;
+    }
+
+    newMessagesIndicatorText.textContent = `${activeConversationPendingMessages}条新消息`;
+    newMessagesIndicator.hidden = false;
+}
+
+function queueMarkActiveConversationRead() {
+    pendingMarkReadRequest = true;
+    markActiveConversationRead();
+}
+
+async function markActiveConversationRead(lastMessageId = null) {
+    if (!pendingMarkReadRequest && !Number.isFinite(Number(lastMessageId))) {
+        return;
+    }
+
+    if (markReadRequestInFlight) {
+        return;
+    }
+
+    const activeConversation = getActiveConversation();
+    const payload = {
+        conversationType: activeConversation.conversationType,
+        peerUsername: activeConversation.peerUsername || "",
+    };
+
+    const normalizedLastId = Number(lastMessageId);
+    if (Number.isFinite(normalizedLastId) && normalizedLastId > 0) {
+        payload.lastMessageId = Math.floor(normalizedLastId);
+    }
+
+    pendingMarkReadRequest = false;
+    markReadRequestInFlight = true;
+    try {
+        await fetch("/chat/mark-read", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            credentials: "same-origin",
+            body: JSON.stringify(payload),
+        });
+    } catch (error) {
+    } finally {
+        markReadRequestInFlight = false;
+        if (pendingMarkReadRequest) {
+            markActiveConversationRead();
         }
-        scrollToBottom();
-    }, 120);
+    }
+}
+
+function clearActiveConversationPendingMessages({ markRead = false } = {}) {
+    activeConversationPendingMessages = 0;
+    updateNewMessagesIndicator();
+    if (markRead) {
+        queueMarkActiveConversationRead();
+    }
+}
+
+function increaseActiveConversationPendingMessages(delta = 1) {
+    const normalizedDelta = Number.isFinite(Number(delta))
+        ? Math.max(0, Math.floor(Number(delta)))
+        : 0;
+    if (normalizedDelta <= 0) {
+        return;
+    }
+
+    activeConversationPendingMessages += normalizedDelta;
+    updateNewMessagesIndicator();
 }
 
 function switchConversation(nextKey, options = {}) {
@@ -297,12 +444,14 @@ function switchConversation(nextKey, options = {}) {
     activeConversationKey = nextKey;
     isHydratingConversation = true;
     const activeConversation = conversations.get(activeConversationKey);
-    activeConversation.hasUnread = false;
+    setConversationUnreadCount(activeConversationKey, 0);
+    clearActiveConversationPendingMessages({ markRead: false });
 
     clearMessagesView();
     renderConversationList();
     updateConversationTitle();
     requestMessages();
+    queueMarkActiveConversationRead();
 
     if (isMobileMode && !keepSidebarOnMobile) {
         mobileSidebarVisible = false;
@@ -660,7 +809,7 @@ function jumpToReferencedMessage(messageId) {
         return;
     }
 
-    rowElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    rowElement.scrollIntoView({ behavior: "auto", block: "center" });
     rowElement.classList.add("referenced-highlight");
     setTimeout(() => {
         rowElement.classList.remove("referenced-highlight");
@@ -1012,7 +1161,8 @@ function renderMessagesInOrder(messages, options = {}) {
     }
 }
 
-function resolveIncomingConversation(data) {
+function resolveIncomingConversation(data, options = {}) {
+    const markUnread = Boolean(options.markUnread);
     const incomingConversation = normalizeIncomingConversation(data);
     if (!incomingConversation) {
         return null;
@@ -1021,9 +1171,8 @@ function resolveIncomingConversation(data) {
     const isActiveConversation =
         incomingConversation.key === activeConversationKey;
     if (!isActiveConversation) {
-        const conversation = conversations.get(incomingConversation.key);
-        if (conversation) {
-            conversation.hasUnread = true;
+        if (markUnread) {
+            increaseConversationUnreadCount(incomingConversation.key, 1);
         }
         renderConversationList();
         return null;
@@ -1060,34 +1209,25 @@ function scrollToBottom() {
 }
 
 function scheduleScrollToBottom(options = {}) {
-    const keepPinnedMs = Number(options.keepPinnedMs || 0);
-
-    if (scheduledScrollRafId !== null) {
-        cancelAnimationFrame(scheduledScrollRafId);
-    }
-    if (scheduledScrollTimeoutId !== null) {
-        clearTimeout(scheduledScrollTimeoutId);
-        scheduledScrollTimeoutId = null;
+    const force = Boolean(options.force);
+    if (!force && !startupAutoScrollEnabled) {
+        return;
     }
 
-    scheduledScrollRafId = requestAnimationFrame(() => {
-        scheduledScrollRafId = null;
-        scrollToBottom();
-        scheduledScrollTimeoutId = setTimeout(() => {
-            scheduledScrollTimeoutId = null;
-            scrollToBottom();
-        }, 70);
-    });
-
-    if (keepPinnedMs > 0) {
-        startStickyBottomMode(keepPinnedMs);
-    }
+    scrollToBottom();
 }
 
 socket.on("message", function (data) {
-    const incomingConversation = resolveIncomingConversation(data);
+    const isIncomingFromOtherUser = safeText(data?.username) !== username;
+    const incomingConversation = resolveIncomingConversation(data, {
+        markUnread: isIncomingFromOtherUser,
+    });
     if (!incomingConversation) {
         return;
+    }
+
+    if (isIncomingFromOtherUser) {
+        increaseActiveConversationPendingMessages(1);
     }
 
     if (
@@ -1099,8 +1239,12 @@ socket.on("message", function (data) {
     }
 
     renderMessagesInOrder([data], {
-        shouldAutoScroll: !isHydratingConversation,
+        shouldAutoScroll: false,
     });
+
+    if (!isIncomingFromOtherUser) {
+        scheduleScrollToBottom({ force: true });
+    }
 });
 
 socket.on("messages_batch", (payload) => {
@@ -1146,7 +1290,7 @@ socket.on("messages_sync_complete", (payload) => {
     pendingRealtimeMessages = [];
 
     renderMessagesInOrder(merged, {
-        shouldAutoScroll: !isHydratingConversation,
+        shouldAutoScroll: false,
     });
 
     if (count >= limit && limit > 0) {
@@ -1161,7 +1305,12 @@ socket.on("messages_sync_complete", (payload) => {
 
     if (isHydratingConversation) {
         isHydratingConversation = false;
-        scheduleScrollToBottom({ keepPinnedMs: 320 });
+        scheduleScrollToBottom({ force: true });
+        clearActiveConversationPendingMessages({ markRead: true });
+        if (!hasCompletedStartupHydration) {
+            startupAutoScrollEnabled = false;
+            hasCompletedStartupHydration = true;
+        }
     }
 });
 
@@ -1570,6 +1719,13 @@ if (replyPreviewCancelButton) {
     replyPreviewCancelButton.addEventListener("click", clearReplyTarget);
 }
 
+if (newMessagesIndicator) {
+    newMessagesIndicator.addEventListener("click", () => {
+        scheduleScrollToBottom({ force: true });
+        clearActiveConversationPendingMessages({ markRead: true });
+    });
+}
+
 setInterval(() => {
     requestMessages();
 }, 5000);
@@ -1582,6 +1738,7 @@ window.onload = async function () {
 
     buildConversationList();
     await hydratePrivateConversations();
+    await hydrateUnreadCounts();
     closePrivateChatModal();
     switchConversation("public", { keepSidebarOnMobile: true });
     updateOnlineStatus(socket.connected ? "connected" : "disconnected");
@@ -1624,7 +1781,6 @@ if (window.visualViewport) {
 if (messageInput) {
     messageInput.addEventListener("focus", () => {
         setAppHeight();
-        scheduleScrollToBottom({ keepPinnedMs: 200 });
         setTimeout(setAppHeight, 300);
     });
     messageInput.addEventListener("blur", () => {
@@ -1633,7 +1789,14 @@ if (messageInput) {
 }
 
 if (messagesContainer) {
-    messagesContainer.addEventListener("scroll", () => {});
+    messagesContainer.addEventListener("scroll", () => {
+        if (
+            activeConversationPendingMessages > 0 &&
+            isMessagesViewNearBottom()
+        ) {
+            clearActiveConversationPendingMessages({ markRead: true });
+        }
+    });
 }
 
 /* --- MISCS FOR MESSAGE DISPLAY --- */

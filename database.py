@@ -105,7 +105,123 @@ def init_db():
         if 'last_seen' not in session_column_names:
             conn.execute('ALTER TABLE sessions ADD COLUMN last_seen DATETIME')
             conn.execute('UPDATE sessions SET last_seen = CURRENT_TIMESTAMP WHERE last_seen IS NULL')
+
+        # 创建会话阅读进度表（用于持久化未读消息计数）
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS conversation_reads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                conversation_type TEXT NOT NULL DEFAULT 'public',
+                peer_username TEXT NOT NULL DEFAULT '',
+                last_read_message_id INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(username, conversation_type, peer_username)
+            )
+        ''')
+
+        conversation_read_columns = conn.execute('PRAGMA table_info(conversation_reads)').fetchall()
+        conversation_read_column_names = {column['name'] for column in conversation_read_columns}
+        if 'conversation_type' not in conversation_read_column_names:
+            conn.execute("ALTER TABLE conversation_reads ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'public'")
+        if 'peer_username' not in conversation_read_column_names:
+            conn.execute("ALTER TABLE conversation_reads ADD COLUMN peer_username TEXT NOT NULL DEFAULT ''")
+        if 'last_read_message_id' not in conversation_read_column_names:
+            conn.execute('ALTER TABLE conversation_reads ADD COLUMN last_read_message_id INTEGER NOT NULL DEFAULT 0')
+        if 'updated_at' not in conversation_read_column_names:
+            conn.execute('ALTER TABLE conversation_reads ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP')
     close_db_connection(conn)
+
+
+def _normalize_conversation_scope(conversation_type='public', peer_username=None):
+    normalized_type = str(conversation_type or 'public').strip().lower()
+    if normalized_type != 'private':
+        return 'public', ''
+
+    normalized_peer = str(peer_username or '').strip()
+    return 'private', normalized_peer
+
+
+def _get_private_conversation_peers_with_conn(conn, username):
+    rows = conn.execute(
+        '''
+        SELECT peer FROM (
+            SELECT peer_username AS peer
+            FROM messages
+            WHERE conversation_type = 'private'
+              AND username = ?
+              AND peer_username IS NOT NULL
+
+            UNION
+
+            SELECT username AS peer
+            FROM messages
+            WHERE conversation_type = 'private'
+              AND peer_username = ?
+        )
+        WHERE peer IS NOT NULL
+          AND peer != ''
+          AND peer != ?
+        ORDER BY peer COLLATE NOCASE ASC
+        ''',
+        (username, username, username),
+    ).fetchall()
+    return [item['peer'] for item in rows]
+
+
+def _get_conversation_latest_message_id(conn, username, conversation_type='public', peer_username=''):
+    if conversation_type == 'private' and peer_username:
+        row = conn.execute(
+            '''
+            SELECT MAX(id) AS max_id
+            FROM messages
+            WHERE conversation_type = 'private'
+              AND ((username = ? AND peer_username = ?)
+                   OR (username = ? AND peer_username = ?))
+            ''',
+            (username, peer_username, peer_username, username),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            '''
+            SELECT MAX(id) AS max_id
+            FROM messages
+            WHERE conversation_type = 'public'
+            '''
+        ).fetchone()
+
+    if not row:
+        return 0
+    return int(row['max_id'] or 0)
+
+
+def _upsert_conversation_read_with_conn(conn, username, conversation_type, peer_username, last_read_message_id):
+    conn.execute(
+        '''
+        INSERT INTO conversation_reads (
+            username,
+            conversation_type,
+            peer_username,
+            last_read_message_id,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(username, conversation_type, peer_username)
+        DO UPDATE SET
+            last_read_message_id = CASE
+                WHEN excluded.last_read_message_id > conversation_reads.last_read_message_id
+                THEN excluded.last_read_message_id
+                ELSE conversation_reads.last_read_message_id
+            END,
+            updated_at = excluded.updated_at
+        ''',
+        (
+            username,
+            conversation_type,
+            peer_username,
+            last_read_message_id,
+            datetime.datetime.utcnow(),
+        ),
+    )
 
 # 新增会话
 def add_session(username, token, user_agent='', ip_address=''):
@@ -588,34 +704,142 @@ def get_messages_for_conversation(username, conversation_type='public', peer_use
 
 
 def get_private_conversation_peers(username):
-        conn = get_db_connection()
-        try:
-                rows = conn.execute(
-                        '''
-                        SELECT peer FROM (
-                                SELECT peer_username AS peer
-                                FROM messages
-                                WHERE conversation_type = 'private'
-                                    AND username = ?
-                                    AND peer_username IS NOT NULL
+    conn = get_db_connection()
+    try:
+        return _get_private_conversation_peers_with_conn(conn, username)
+    finally:
+        close_db_connection(conn)
 
-                                UNION
 
-                                SELECT username AS peer
-                                FROM messages
-                                WHERE conversation_type = 'private'
-                                    AND peer_username = ?
-                        )
-                        WHERE peer IS NOT NULL
-                            AND peer != ''
-                            AND peer != ?
-                        ORDER BY peer COLLATE NOCASE ASC
-                        ''',
-                        (username, username, username),
-                ).fetchall()
-                return [item['peer'] for item in rows]
-        finally:
-                close_db_connection(conn)
+def set_conversation_read(username, conversation_type='public', peer_username=None, last_read_message_id=None):
+    normalized_type, normalized_peer = _normalize_conversation_scope(
+        conversation_type,
+        peer_username,
+    )
+
+    if normalized_type == 'private' and not normalized_peer:
+        return False
+
+    conn = get_db_connection()
+    try:
+        if last_read_message_id is None:
+            target_last_read_id = _get_conversation_latest_message_id(
+                conn,
+                username,
+                conversation_type=normalized_type,
+                peer_username=normalized_peer,
+            )
+        else:
+            try:
+                target_last_read_id = max(0, int(last_read_message_id))
+            except (TypeError, ValueError):
+                target_last_read_id = 0
+
+        with conn:
+            _upsert_conversation_read_with_conn(
+                conn,
+                username,
+                normalized_type,
+                normalized_peer,
+                target_last_read_id,
+            )
+        return True
+    except Exception as e:
+        print(f"Error setting conversation read state: {e}")
+        return False
+    finally:
+        close_db_connection(conn)
+
+
+def get_conversation_unread_counts(username):
+    conn = get_db_connection()
+    try:
+        read_rows = conn.execute(
+            '''
+            SELECT conversation_type, peer_username, last_read_message_id
+            FROM conversation_reads
+            WHERE username = ?
+            ''',
+            (username,),
+        ).fetchall()
+
+        read_state = {}
+        for item in read_rows:
+            conversation_type = str(item['conversation_type'] or 'public')
+            peer = str(item['peer_username'] or '')
+            key = 'public' if conversation_type != 'private' else f'private:{peer}'
+            read_state[key] = int(item['last_read_message_id'] or 0)
+
+        if 'public' in read_state:
+            public_last_read_id = int(read_state.get('public', 0))
+        else:
+            public_last_read_id = _get_conversation_latest_message_id(
+                conn,
+                username,
+                conversation_type='public',
+                peer_username='',
+            )
+            with conn:
+                _upsert_conversation_read_with_conn(
+                    conn,
+                    username,
+                    'public',
+                    '',
+                    public_last_read_id,
+                )
+
+        public_count_row = conn.execute(
+            '''
+            SELECT COUNT(*) AS total
+            FROM messages
+            WHERE conversation_type = 'public'
+              AND id > ?
+              AND username != ?
+            ''',
+            (public_last_read_id, username),
+        ).fetchone()
+
+        unread_counts = {
+            'public': int(public_count_row['total']) if public_count_row else 0,
+        }
+
+        peers = _get_private_conversation_peers_with_conn(conn, username)
+        for peer in peers:
+            key = f'private:{peer}'
+            if key in read_state:
+                private_last_read_id = int(read_state.get(key, 0))
+            else:
+                private_last_read_id = _get_conversation_latest_message_id(
+                    conn,
+                    username,
+                    conversation_type='private',
+                    peer_username=peer,
+                )
+                with conn:
+                    _upsert_conversation_read_with_conn(
+                        conn,
+                        username,
+                        'private',
+                        peer,
+                        private_last_read_id,
+                    )
+
+            private_count_row = conn.execute(
+                '''
+                SELECT COUNT(*) AS total
+                FROM messages
+                WHERE conversation_type = 'private'
+                  AND username = ?
+                  AND peer_username = ?
+                  AND id > ?
+                ''',
+                (peer, username, private_last_read_id),
+            ).fetchone()
+            unread_counts[key] = int(private_count_row['total']) if private_count_row else 0
+
+        return unread_counts
+    finally:
+        close_db_connection(conn)
 
 
 def get_message_by_id(message_id):
