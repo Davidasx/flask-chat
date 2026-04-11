@@ -6,7 +6,7 @@ from flask_socketio import SocketIO, emit, disconnect, join_room
 from functools import wraps
 from config import config
 from threading import Timer
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.utils import secure_filename
 import os
 import uuid
@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.9'
+APP_VERSION = '1.3.9.1'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -146,7 +146,8 @@ def _save_chat_upload(file_storage, upload_kind):
     if upload_kind == 'image':
         try:
             with Image.open(absolute_path) as uploaded_image:
-                image_width, image_height = uploaded_image.size
+                normalized_image = ImageOps.exif_transpose(uploaded_image)
+                image_width, image_height = normalized_image.size
                 image_width = int(image_width)
                 image_height = int(image_height)
                 if image_width <= 0 or image_height <= 0:
@@ -1031,7 +1032,8 @@ def handle_message(data):
             if image_width <= 0 or image_height <= 0:
                 try:
                     with Image.open(stored_path) as uploaded_image:
-                        image_width, image_height = uploaded_image.size
+                        normalized_image = ImageOps.exif_transpose(uploaded_image)
+                        image_width, image_height = normalized_image.size
                         image_width = int(image_width)
                         image_height = int(image_height)
                 except (UnidentifiedImageError, OSError, ValueError):

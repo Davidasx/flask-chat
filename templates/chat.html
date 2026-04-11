@@ -73,14 +73,6 @@
                 </div>
                 <div class="chat-container">
                     <div id="messages"></div>
-                    <button
-                        id="new-messages-indicator"
-                        class="new-messages-indicator"
-                        type="button"
-                        hidden
-                    >
-                        <span id="new-messages-indicator-text">0条新消息</span>
-                    </button>
                     <div id="reply-preview" class="reply-preview" hidden>
                         <div class="reply-preview-text">
                             <span id="reply-preview-user"></span>
@@ -136,6 +128,16 @@
                             placeholder="输入消息..."
                         />
                         <button id="send-button">发送</button>
+                        <button
+                            id="new-messages-indicator"
+                            class="new-messages-indicator"
+                            type="button"
+                            aria-label="滚动到底部"
+                            title="滚动到底部"
+                            hidden
+                        >
+                            <span id="new-messages-indicator-text">↓</span>
+                        </button>
                     </div>
                 </div>
             </main>

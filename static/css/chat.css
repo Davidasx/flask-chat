@@ -854,6 +854,7 @@
 
 /* 输入区域 */
 .input-area {
+    position: relative;
     padding: 14px 16px;
     background: #ffffff;
     border-top: 1px solid #e6edf4;
@@ -908,21 +909,51 @@
 .new-messages-indicator {
     position: absolute;
     right: 16px;
-    bottom: 82px;
+    bottom: calc(100% + 10px);
     z-index: 36;
     border: none;
-    border-radius: 999px;
-    padding: 8px 14px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    padding: 0;
     background: #2563eb;
     color: #ffffff;
-    font-size: 13px;
+    font-size: 18px;
     font-weight: 700;
+    line-height: 1;
     box-shadow: 0 10px 24px rgba(37, 99, 235, 0.34);
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .new-messages-indicator:hover {
     background: #1d4ed8;
+}
+
+#new-messages-indicator-text {
+    display: inline-block;
+    transform: translateY(-1px);
+}
+
+.new-messages-indicator.has-unread::after {
+    content: attr(data-unread-count);
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    padding: 0 4px;
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    border: 1.5px solid #ffffff;
+    box-sizing: border-box;
 }
 
 .new-messages-indicator[hidden] {
@@ -1155,9 +1186,8 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
     .chat-container {
-        top: calc(62px + env(safe-area-inset-top));
-        bottom: max(8px, env(safe-area-inset-bottom));
-        width: calc(100vw - 16px);
+        width: 100%;
+        min-height: 0;
         border-radius: 12px;
     }
 
@@ -1189,7 +1219,7 @@
 
     .new-messages-indicator {
         right: 12px;
-        bottom: 76px;
+        bottom: calc(100% + 8px);
     }
 
     .message-actions-menu {

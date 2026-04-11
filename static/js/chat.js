@@ -361,12 +361,39 @@ function updateNewMessagesIndicator() {
         return;
     }
 
-    if (activeConversationPendingMessages <= 0) {
+    const unreadCount = Math.max(0, Number(activeConversationPendingMessages));
+    const hasUnread = unreadCount > 0;
+    const hasScrollableMessages = messagesContainer
+        ? messagesContainer.scrollHeight - messagesContainer.clientHeight > 8
+        : false;
+    const shouldShow =
+        hasUnread || (hasScrollableMessages && !isMessagesViewNearBottom());
+
+    if (!shouldShow) {
+        newMessagesIndicator.classList.remove("has-unread");
+        delete newMessagesIndicator.dataset.unreadCount;
         newMessagesIndicator.hidden = true;
         return;
     }
 
-    newMessagesIndicatorText.textContent = `${activeConversationPendingMessages}条新消息`;
+    newMessagesIndicatorText.textContent = "↓";
+    if (hasUnread) {
+        const unreadLabel = `${unreadCount}条新消息`;
+        newMessagesIndicator.classList.add("has-unread");
+        newMessagesIndicator.dataset.unreadCount =
+            formatUnreadCount(unreadCount);
+        newMessagesIndicator.setAttribute(
+            "aria-label",
+            `${unreadLabel}，点击滚动到底部`,
+        );
+        newMessagesIndicator.setAttribute("title", unreadLabel);
+    } else {
+        newMessagesIndicator.classList.remove("has-unread");
+        delete newMessagesIndicator.dataset.unreadCount;
+        newMessagesIndicator.setAttribute("aria-label", "滚动到底部");
+        newMessagesIndicator.setAttribute("title", "滚动到底部");
+    }
+
     newMessagesIndicator.hidden = false;
 }
 
@@ -927,7 +954,17 @@ function resolveImageSourceSize(data) {
 }
 
 function computeImageRenderSize(sourceWidth, sourceHeight) {
-    const maxWidth = Math.min(320, Math.floor(window.innerWidth * 0.58));
+    const viewportWidth = window.visualViewport
+        ? Math.floor(window.visualViewport.width)
+        : Math.floor(window.innerWidth);
+    const maxWidthByViewport = Math.min(320, Math.floor(viewportWidth * 0.58));
+    const maxWidthByContainer = messagesContainer
+        ? Math.floor(messagesContainer.clientWidth * 0.72)
+        : maxWidthByViewport;
+    const maxWidth = Math.max(
+        1,
+        Math.min(maxWidthByViewport, maxWidthByContainer),
+    );
     const maxHeight = 280;
 
     let nextWidth = sourceWidth;
@@ -952,6 +989,22 @@ function applyImageReservedSlot(imageElement, data) {
     imageElement.style.width = `${renderSize.width}px`;
     imageElement.style.height = `${renderSize.height}px`;
     imageElement.style.aspectRatio = `${sourceSize.width} / ${sourceSize.height}`;
+}
+
+function applyImageSlotFromNaturalSize(imageElement) {
+    if (!imageElement) {
+        return;
+    }
+    const naturalWidth = Number(imageElement.naturalWidth || 0);
+    const naturalHeight = Number(imageElement.naturalHeight || 0);
+    if (naturalWidth <= 0 || naturalHeight <= 0) {
+        return;
+    }
+
+    applyImageReservedSlot(imageElement, {
+        image_width: naturalWidth,
+        image_height: naturalHeight,
+    });
 }
 
 function openImagePreview(url, name = "") {
@@ -1259,6 +1312,7 @@ function scheduleScrollToBottom(options = {}) {
     }
 
     scrollToBottom();
+    updateNewMessagesIndicator();
 }
 
 socket.on("message", function (data) {
@@ -1435,6 +1489,7 @@ function createMessageElement({
         imageElement.alt = safeText(data.file_name || "图片消息");
         imageElement.loading = "lazy";
         imageElement.addEventListener("load", () => {
+            applyImageSlotFromNaturalSize(imageElement);
             if (isOwn || isMessagesViewNearBottom(48)) {
                 scheduleScrollToBottom({ force: true });
             }
@@ -1768,8 +1823,11 @@ if (replyPreviewCancelButton) {
 
 if (newMessagesIndicator) {
     newMessagesIndicator.addEventListener("click", () => {
+        const shouldMarkRead = activeConversationPendingMessages > 0;
         scheduleScrollToBottom({ force: true });
-        clearActiveConversationPendingMessages({ markRead: true });
+        if (shouldMarkRead) {
+            clearActiveConversationPendingMessages({ markRead: true });
+        }
     });
 }
 
@@ -1843,6 +1901,7 @@ if (messagesContainer) {
         ) {
             clearActiveConversationPendingMessages({ markRead: true });
         }
+        updateNewMessagesIndicator();
     });
 }
 
