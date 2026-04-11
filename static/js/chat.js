@@ -979,7 +979,7 @@ function computeImageRenderSize(sourceWidth, sourceHeight) {
 function applyImageReservedSlot(imageElement, data) {
     const sourceSize = resolveImageSourceSize(data);
     if (!sourceSize) {
-        return;
+        return false;
     }
 
     const renderSize = computeImageRenderSize(
@@ -987,8 +987,10 @@ function applyImageReservedSlot(imageElement, data) {
         sourceSize.height,
     );
     imageElement.style.width = `${renderSize.width}px`;
-    imageElement.style.height = `${renderSize.height}px`;
+    imageElement.style.maxWidth = "100%";
+    imageElement.style.height = "auto";
     imageElement.style.aspectRatio = `${sourceSize.width} / ${sourceSize.height}`;
+    return true;
 }
 
 function applyImageSlotFromNaturalSize(imageElement) {
@@ -1001,7 +1003,7 @@ function applyImageSlotFromNaturalSize(imageElement) {
         return;
     }
 
-    applyImageReservedSlot(imageElement, {
+    return applyImageReservedSlot(imageElement, {
         image_width: naturalWidth,
         image_height: naturalHeight,
     });
@@ -1477,6 +1479,8 @@ function createMessageElement({
 
     if (messageType === "image" && data.file_url) {
         bubbleElement.classList.add("image-only-bubble");
+        const shouldStickBottomAfterLoad =
+            isOwn || isHydratingConversation || isMessagesViewNearBottom(64);
         const imageButton = document.createElement("button");
         imageButton.type = "button";
         imageButton.className = "image-preview-trigger";
@@ -1490,7 +1494,7 @@ function createMessageElement({
         imageElement.loading = "lazy";
         imageElement.addEventListener("load", () => {
             applyImageSlotFromNaturalSize(imageElement);
-            if (isOwn || isMessagesViewNearBottom(48)) {
+            if (shouldStickBottomAfterLoad) {
                 scheduleScrollToBottom({ force: true });
             }
         });

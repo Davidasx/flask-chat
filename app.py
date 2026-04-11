@@ -3,7 +3,7 @@ import jwt
 import datetime
 import database
 from flask_socketio import SocketIO, emit, disconnect, join_room
-from functools import wraps
+from functools import wraps, lru_cache
 from config import config
 from threading import Timer
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -29,7 +29,7 @@ ws_connections = {}
 DEFAULT_AVATAR_PATH = '/static/images/default-avatar.svg'
 AVATAR_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'avatars')
 CHAT_UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads', 'chat_files')
-APP_VERSION = '1.3.9.1'
+APP_VERSION = '1.3.9.2'
 MAX_CHAT_MESSAGE_LENGTH = 500
 MAX_CHAT_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
@@ -108,6 +108,34 @@ def _delete_chat_upload(file_url):
             pass
 
 
+@lru_cache(maxsize=2048)
+def _read_image_size_cached(absolute_path, mtime_ns):
+    with Image.open(absolute_path) as uploaded_image:
+        normalized_image = ImageOps.exif_transpose(uploaded_image)
+        image_width, image_height = normalized_image.size
+
+    image_width = int(image_width)
+    image_height = int(image_height)
+    if image_width <= 0 or image_height <= 0:
+        raise ValueError('invalid image size')
+
+    return image_width, image_height
+
+
+def _resolve_image_size_for_payload(file_url):
+    if not _is_chat_upload_local(file_url):
+        return None, None
+
+    absolute_path = os.path.join(app.root_path, str(file_url).lstrip('/'))
+    try:
+        stat_result = os.stat(absolute_path)
+        if not os.path.isfile(absolute_path):
+            return None, None
+        return _read_image_size_cached(absolute_path, stat_result.st_mtime_ns)
+    except (OSError, UnidentifiedImageError, ValueError):
+        return None, None
+
+
 def _save_chat_upload(file_storage, upload_kind):
     if not file_storage or not file_storage.filename:
         return None, '请选择要上传的文件'
@@ -144,15 +172,10 @@ def _save_chat_upload(file_storage, upload_kind):
     image_width = None
     image_height = None
     if upload_kind == 'image':
-        try:
-            with Image.open(absolute_path) as uploaded_image:
-                normalized_image = ImageOps.exif_transpose(uploaded_image)
-                image_width, image_height = normalized_image.size
-                image_width = int(image_width)
-                image_height = int(image_height)
-                if image_width <= 0 or image_height <= 0:
-                    raise ValueError('invalid image size')
-        except (UnidentifiedImageError, OSError, ValueError):
+        image_width, image_height = _resolve_image_size_for_payload(
+            f'/static/uploads/chat_files/{stored_name}'
+        )
+        if image_width is None or image_height is None:
             _delete_chat_upload(f'/static/uploads/chat_files/{stored_name}')
             return None, '图片文件无效或已损坏'
 
@@ -208,6 +231,24 @@ def _build_message_payload(message_row, viewer_username=None):
         else:
             reply_to_id = None
 
+    image_width = None
+    image_height = None
+    if (message_row['message_type'] or 'text') == 'image':
+        image_width, image_height = _resolve_image_size_for_payload(
+            message_row['file_url']
+        )
+        if image_width is None or image_height is None:
+            image_width = (
+                message_row['image_width']
+                if 'image_width' in message_row.keys()
+                else None
+            )
+            image_height = (
+                message_row['image_height']
+                if 'image_height' in message_row.keys()
+                else None
+            )
+
     data = {
         'username': message_row['username'],
         'message': message_row['message'],
@@ -223,8 +264,8 @@ def _build_message_payload(message_row, viewer_username=None):
         'file_name': message_row['file_name'],
         'file_size': message_row['file_size'],
         'file_mime': message_row['file_mime'],
-        'image_width': message_row['image_width'] if 'image_width' in message_row.keys() else None,
-        'image_height': message_row['image_height'] if 'image_height' in message_row.keys() else None,
+        'image_width': image_width,
+        'image_height': image_height,
         'reply_to_id': reply_to_id,
     }
 
@@ -1022,24 +1063,10 @@ def handle_message(data):
             return
 
         if message_type == 'image':
-            try:
-                image_width = int(payload.get('imageWidth', 0))
-                image_height = int(payload.get('imageHeight', 0))
-            except (TypeError, ValueError):
-                image_width = 0
-                image_height = 0
-
-            if image_width <= 0 or image_height <= 0:
-                try:
-                    with Image.open(stored_path) as uploaded_image:
-                        normalized_image = ImageOps.exif_transpose(uploaded_image)
-                        image_width, image_height = normalized_image.size
-                        image_width = int(image_width)
-                        image_height = int(image_height)
-                except (UnidentifiedImageError, OSError, ValueError):
-                    return
-
-            if image_width <= 0 or image_height <= 0:
+            resolved_width, resolved_height = _resolve_image_size_for_payload(
+                file_url
+            )
+            if resolved_width is None or resolved_height is None:
                 return
     
     # 保存消息到数据库
@@ -1054,8 +1081,8 @@ def handle_message(data):
         file_size=file_size,
         file_mime=file_mime,
         reply_to_id=reply_to_id,
-        image_width=image_width,
-        image_height=image_height,
+        image_width=None,
+        image_height=None,
     )
     if not message_id:
         return

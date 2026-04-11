@@ -1033,12 +1033,14 @@
 
 .message-image {
     display: block;
+    width: auto;
+    height: auto;
     max-width: min(320px, 58vw);
     max-height: 280px;
     border-radius: 10px;
     border: 1px solid #d8e4f1;
-    object-fit: contain;
-    background: #f8fafc;
+    object-fit: initial;
+    background: transparent;
 }
 
 .image-preview-trigger {
