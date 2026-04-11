@@ -283,10 +283,23 @@ function renderConversationList() {
             item.classList.add("active");
         }
 
+        const contentElement = document.createElement("span");
+        contentElement.className = "conversation-item-content";
+
+        if (conversation.conversationType === "private") {
+            const statusDot = document.createElement("span");
+            const isPeerOnline = onlineUsers.has(conversation.peerUsername);
+            statusDot.className = `conversation-status-dot ${isPeerOnline ? "online" : "offline"}`;
+            statusDot.setAttribute("aria-hidden", "true");
+            item.title = `${conversation.label}（${isPeerOnline ? "在线" : "离线"}）`;
+            contentElement.appendChild(statusDot);
+        }
+
         const labelElement = document.createElement("span");
         labelElement.className = "conversation-item-label";
         labelElement.textContent = conversation.label;
-        item.appendChild(labelElement);
+        contentElement.appendChild(labelElement);
+        item.appendChild(contentElement);
 
         const metaElement = document.createElement("span");
         metaElement.className = "conversation-item-meta";
@@ -302,16 +315,6 @@ function renderConversationList() {
                 Number(conversation.unreadCount || 0),
             );
             metaElement.appendChild(unreadBadge);
-            hasMeta = true;
-        }
-
-        if (conversation.conversationType === "private") {
-            const statusDot = document.createElement("span");
-            const isPeerOnline = onlineUsers.has(conversation.peerUsername);
-            statusDot.className = `conversation-status-dot ${isPeerOnline ? "online" : "offline"}`;
-            statusDot.setAttribute("aria-hidden", "true");
-            item.title = `${conversation.label}（${isPeerOnline ? "在线" : "离线"}）`;
-            metaElement.appendChild(statusDot);
             hasMeta = true;
         }
 

@@ -194,6 +194,14 @@
     white-space: nowrap;
 }
 
+.conversation-item-content {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
 .conversation-item-meta {
     display: inline-flex;
     align-items: center;
